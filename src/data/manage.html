@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Stations</title>
+  <style>
+    body{font-family:Arial,sans-serif;max-width:600px;margin:20px auto;padding:20px;background:#f0f0f0}
+    .box{background:white;padding:24px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,.1)}
+    h1{color:#333;margin-top:0}
+    input[type=text]{width:100%;padding:10px;border:1px solid #ddd;border-radius:5px;box-sizing:border-box;margin:4px 0 12px}
+    button{width:100%;padding:12px;font-size:16px;color:white;border:none;border-radius:5px;cursor:pointer;margin-top:8px;background:#0066cc}
+    button.back{background:#666}
+    button.del{background:#dc3545;width:auto;padding:6px 14px;font-size:14px}
+    .item{background:#f8f8f8;padding:12px;margin:8px 0;border-radius:5px;display:flex;justify-content:space-between;align-items:center}
+    .name{font-weight:bold;color:#333}
+    .url{font-size:12px;color:#666;word-break:break-all}
+  </style>
+</head>
+<body>
+<div class="box">
+  <h1>Manage Stations</h1>
+  <h2>Add a New Station</h2>
+  <label>Name:</label>
+  <input type="text" id="nn" placeholder="ex: BBC Radio 1">
+  <label>Stream URL:</label>
+  <input type="text" id="nu" placeholder="http://stream.example.com/radio">
+  <button onclick="addStation()">Add</button>
+
+  <h2>Current Stations</h2>
+  <div id="list"></div>
+  <button class="back" onclick="location.href='/'">Back</button>
+</div>
+<script>
+  function load(){
+    fetch('/getstations').then(r=>r.json()).then(arr=>{
+      const d=document.getElementById('list');d.innerHTML='';
+      arr.forEach(s=>{
+        d.innerHTML+=`<div class="item">
+          <div><div class="name">${s.name}</div>
+          <div class="url">${s.url}</div></div>
+          <button class="del" onclick="del(${s.id})">Delete</button>
+        </div>`;
+      });
+    });
+  }
+  function addStation(){
+    const n=document.getElementById('nn').value.trim();
+    const u=document.getElementById('nu').value.trim();
+    if(!n||!u){alert('Please fill in both fields');return}
+    fetch('/addstation?name='+encodeURIComponent(n)+'&url='+encodeURIComponent(u))
+      .then(()=>{document.getElementById('nn').value='';
+                 document.getElementById('nu').value='';
+                 load();alert('Added');});
+  }
+  function del(id){
+    if(confirm('Delete this station?'))
+      fetch('/deletestation?id='+id).then(()=>{load();alert('Deleted');});
+  }
+  load();
+</script>
+</body>
+</html>

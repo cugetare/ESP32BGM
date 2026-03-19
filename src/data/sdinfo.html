@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>SD Info</title>
+  <style>
+    body{font-family:Arial,sans-serif;max-width:600px;margin:20px auto;padding:20px;background:#f0f0f0}
+    .box{background:white;padding:20px;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.1);margin-bottom:20px}
+    button{width:100%;padding:12px;font-size:16px;background:#666;color:white;border:none;border-radius:5px;cursor:pointer;margin-top:10px}
+    .info{background:#e7f3ff;padding:12px;border-radius:5px;color:#004085;margin-bottom:12px}
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h2>SD Card</h2>
+    <div class="info">
+      Status: <b>{{SD_STATUS}}</b><br>
+      Type: {{CARD_TYPE}}<br>
+      Size: {{CARD_SIZE}}<br>
+      Audio files: {{FILE_COUNT}}
+    </div>
+    <h3>Files</h3>
+    <div style="background:#f8f8f8;padding:12px;border-radius:5px">{{FILE_LIST}}</div>
+    <button onclick="location.href='/'">Back</button>
+  </div>
+</body>
+</html>
