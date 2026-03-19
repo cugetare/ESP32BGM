@@ -298,6 +298,9 @@ void sdLoop();
 
 // --- WebHandlers.cpp ---
 void registerRoutes();
+
+// --- WebTask.cpp ---
+void startWebTask();
 // Individual handlers (called by server.on lambdas internally; declared for clarity)
 void handleRoot();
 void handleWifiSetup();

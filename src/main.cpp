@@ -102,20 +102,24 @@ DNSServer   dnsServer;
 // ============================================================
 
 void setup() {
+// Initialize hardware components such as I2S, audio codec, and any other peripherals. This sets up the necessary interfaces for audio playback and other hardware interactions.  
   initHardware();
-
+// Load all settings from non-volatile storage (Preferences). This includes WiFi credentials, station list, and other configuration parameters. This ensures that the device can restore its previous state after a reboot.
   settingsLoadAll();
-
+//The mutex (mutual exclusion lock) ensures only one task modifies audio state at a time.
   audioStateMutex = xSemaphoreCreateMutex();
-
-  registerRoutes();
-
+// Create the audio task that will run the audio processing loop. This allows audio playback to run concurrently with the main loop, which handles network and user interactions.
+//  registerRoutes(); // Moved to WebTask to ensure it starts after audio initialization, preventing potential conflicts during startup.
+// Initialize WiFi and network services. This includes connecting to WiFi, starting the web server, and any other network-related setup.
   networkBegin();
-  server.begin();
-
+// Start the DNS server to handle domain name resolution for the captive portal when in configuration mode.
+//  server.begin(); // Moved to WebTask to ensure it starts after audio initialization, preventing potential conflicts during startup.
+// If the device is in configuration mode (e.g., acting as a WiFi access point for setup), start the DNS server to redirect all DNS queries to the device's IP address, enabling the captive portal functionality.
   modeBeginSelected();
-
+// Initialize the audio task, which will handle audio playback in a separate thread. This allows the main loop to remain responsive for network and user interactions while audio is playing.
   initAudioTask();
+// Start the web server task, which will handle incoming HTTP requests in a separate thread. This allows the main loop to focus on network management and other tasks without being blocked by web server processing.
+  startWebTask();
 }
 
 // ============================================================
@@ -125,6 +129,7 @@ void setup() {
 void loop() {
   networkLoop();
   mqttLoop();
-  server.handleClient();
-  yield();
+  //  server.handleClient(); // Moved to WebTask to ensure it starts after audio initialization, preventing potential conflicts during startup.
+  //  yield();
+  vTaskDelay(1);
 }
