@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ESP32 Audio</title>
+  <style>
+    body{font-family:Arial,sans-serif;max-width:500px;margin:20px auto;padding:20px;background:#f0f0f0}
+    .box{background:white;padding:24px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,.1)}
+    h1{color:#333;margin-top:0}
+    h2{color:#555;font-size:18px;margin:20px 0 8px}
+    select,input[type=range]{width:100%;margin:6px 0}
+    select{padding:10px;font-size:16px;border:1px solid #ddd;border-radius:5px}
+    input[type=range]{height:30px}
+    .val{text-align:center;font-size:22px;font-weight:bold;color:#0066cc;margin:6px 0}
+    .grp{background:#f8f8f8;padding:14px;border-radius:6px;margin:14px 0}
+    button{width:100%;padding:13px;font-size:16px;color:white;border:none;border-radius:5px;cursor:pointer;margin-top:8px;background:#0066cc}
+    button:hover{background:#0052a3}
+    button.danger{background:#dc3545}
+    button.alt{background:#666}
+    .now{background:#e7f3ff;padding:12px;border-radius:5px;text-align:center;margin-bottom:16px}
+    .now strong{color:#0066cc}
+    .status{background:#fff8e1;padding:12px;border-radius:5px;margin-bottom:16px;color:#6b5600;font-size:14px}
+  </style>
+</head>
+<body>
+<div class="box">
+  <h1>ESP32 Audio</h1>
+  <div class="now"><strong>Now Playing:</strong><br><span id="sname">{{NOW_PLAYING}}</span></div>
+  <div class="status">{{STATUS_TEXT}}</div>
+
+  <div class="grp">
+    <label>Mode</label>
+    <select id="mode-select" onchange="changeMode(this.value)">
+      {{MODE_OPTIONS}}
+    </select>
+  </div>
+
+  {{SOURCE_SECTION}}
+
+  <button onclick="playbackPlay()">Play</button>
+  <button class="alt" onclick="playbackPause()">Pause</button>
+  <button class="alt" onclick="location.href='/setup'">WiFi Setup</button>
+
+  <div class="grp">
+    <label>Volume</label>
+    <div class="val" id="vd">{{CURRENT_VOLUME}}</div>
+    <input type="range" min="0" max="100" value="{{CURRENT_VOLUME}}" oninput="updateVolume(this.value)">
+  </div>
+  <div class="grp">
+    <label>Bass</label>
+    <div class="val" id="bd">{{CURRENT_BASS}}</div>
+    <input type="range" min="-10" max="10" value="{{CURRENT_BASS}}" oninput="updateBass(this.value)">
+  </div>
+  <div class="grp">
+    <label>Treble</label>
+    <div class="val" id="td">{{CURRENT_TREBLE}}</div>
+    <input type="range" min="-10" max="10" value="{{CURRENT_TREBLE}}" oninput="updateTreble(this.value)">
+  </div>
+  <button onclick="saveDefaults()">Save as Default</button>
+  <button onclick="location.href='/sdinfo'">SD Card Info</button>
+  <button class="alt" onclick="location.href='/diagnostics'">Diagnostics</button>
+  <button class="danger" onclick="resetWifi()">Reset WiFi</button>
+  <button class="danger" onclick="reboot()">Reboot</button>
+</div>
+<script>
+  function updateVolume(v){document.getElementById('vd').innerText=v;fetch('/setvolume?v='+v)}
+  function updateBass(v){document.getElementById('bd').innerText=v;fetch('/setbass?v='+v)}
+  function updateTreble(v){document.getElementById('td').innerText=v;fetch('/settreble?v='+v)}
+  function changeMode(m){
+    fetch('/setmode?m='+m,{method:'POST'})
+      .then(r=>{ if(!r.ok) throw new Error(); return r.text(); })
+      .then(()=>setTimeout(()=>location.reload(),400))
+      .catch(()=>alert('Mode switch failed'));
+  }
+  function changeItem(i){
+    fetch('/selectitem?i='+i).then(()=>setTimeout(()=>location.reload(),400))
+  }
+  function playbackPlay(){
+    fetch('/play',{method:'POST'}).then(()=>setTimeout(()=>location.reload(),400))
+  }
+  function playbackPause(){
+    fetch('/pause',{method:'POST'}).then(()=>setTimeout(()=>location.reload(),400))
+  }
+  function refreshLibrary(){
+    fetch('/refreshlibrary',{method:'POST'}).then(()=>setTimeout(()=>location.reload(),400))
+  }
+  function saveDefaults(){
+    fetch('/savedefaults').then(()=>alert('Defaults saved'));
+  }
+  function resetWifi(){
+    if(confirm('Reset WiFi?'))
+      fetch('/resetwifi').then(()=>alert('Restarting...'));
+  }
+  function reboot(){
+    if(confirm('Reboot?'))fetch('/reboot').then(()=>alert('Restarting...'));
+  }
+</script>
+</body>
+</html>
