@@ -26,6 +26,10 @@ A project for ESP32 microcontroller that handles background music (BGM) playback
 
 Contributions are welcome. Please submit pull requests with improvements.
 
+## Sources
+
+Ai-Thinker-Open / ESP32-A1S-AudioKit: https://github.com/Ai-Thinker-Open/ESP32-A1S-AudioKit
+
 ## License
 
 GPL 3.0 License
