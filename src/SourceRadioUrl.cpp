@@ -49,7 +49,8 @@ bool radioOpenSelected(SourceOpenResult& out) {
     ? stations[currentStation].mime.c_str()
     : nullptr;
   if (!url.begin(stations[currentStation].url.c_str(), acceptMime)) {
-    runtimeStatus.lastError = "Failed to open radio stream";
+    runtimeStatus.lastError = "Failed to open radio stream: " + stations[currentStation].url;
+    Serial.println(runtimeStatus.lastError);
     return false;
   }
 

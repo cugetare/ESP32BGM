@@ -80,6 +80,11 @@ bool modeSwitchTo(PlaybackMode mode) {
 
   modeStop();
 
+  // Load stations when switching to network-based modes
+  if (modeRequiresNetwork(mode)) {
+    loadStations();
+  }
+
   globalSettings.selectedMode = mode;
   runtimeStatus.selectedMode = mode;
   runtimeStatus.playbackState = STATE_STARTING;
@@ -100,24 +105,46 @@ bool modeSwitchTo(PlaybackMode mode) {
   switch (mode) {
     case PLAYBACK_RADIO_URL:
       started = radioBegin();
+      if (!started) {
+        runtimeStatus.playbackState = STATE_ERROR;
+        audioStateUnlock();
+        return false;
+      }
+      if (!modeOpenSelection()) {
+        if (runtimeStatus.playbackState != STATE_ERROR) {
+          audioStateUnlock();
+          return false;
+        }
+        audioStateUnlock();
+        return false;
+      }
       break;
     case PLAYBACK_SD_CARD:
       started = sdBegin();
+      if (!started) {
+        runtimeStatus.playbackState = STATE_ERROR;
+        audioStateUnlock();
+        return false;
+      }
+      if (!modeOpenSelection()) {
+        runtimeStatus.playbackState = STATE_ERROR;
+        audioStateUnlock();
+        return false;
+      }
       break;
     case PLAYBACK_FTP_LIBRARY:
       started = ftpBegin();
+      if (!started) {
+        runtimeStatus.playbackState = STATE_ERROR;
+        audioStateUnlock();
+        return false;
+      }
+      if (!modeOpenSelection()) {
+        runtimeStatus.playbackState = STATE_ERROR;
+        audioStateUnlock();
+        return false;
+      }
       break;
-  }
-
-  if (!started) {
-    runtimeStatus.playbackState = STATE_ERROR;
-    audioStateUnlock();
-    return false;
-  }
-
-  if (modeOpenSelection()) {
-    audioStateUnlock();
-    return true;
   }
 
   if (mode == PLAYBACK_SD_CARD && !sdTracks.empty()) {
@@ -137,7 +164,7 @@ bool modeSwitchTo(PlaybackMode mode) {
   }
 
   audioStateUnlock();
-  return false;
+  return true;
 }
 
 bool playbackSelectMode(PlaybackMode mode) {
@@ -235,12 +262,14 @@ bool playbackRefreshLibrary() {
         audioStateUnlock();
         return opened;
       }
+      break;
     case PLAYBACK_FTP_LIBRARY:
       {
         bool refreshed = ftpRefreshLibrary();
         audioStateUnlock();
         return refreshed;
       }
+      break;
     case PLAYBACK_RADIO_URL:
       if (!radioBegin()) {
         audioStateUnlock();
@@ -251,9 +280,11 @@ bool playbackRefreshLibrary() {
         audioStateUnlock();
         return opened;
       }
+      break;
+    default:
+      audioStateUnlock();
+      return false;
   }
-  audioStateUnlock();
-  return false;
 }
 
 void modeLoop() {

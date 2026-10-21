@@ -21,9 +21,12 @@ void initHardware() {
   bufferedUrl.setStream(url);
   bufferedUrl.resize(URL_BUFFER_SIZE);
   if (bufferedUrl.availableForWrite() == 0) {
-    Serial.printf("URL buffer allocation may have failed at %d bytes, retrying with %d bytes\n", URL_BUFFER_SIZE, URL_BUFFER_FALLBACK_SIZE);
+    Serial.printf("URL buffer allocation failed at %d bytes, retrying with %d bytes\n", URL_BUFFER_SIZE, URL_BUFFER_FALLBACK_SIZE);
     bufferedUrl.resize(URL_BUFFER_FALLBACK_SIZE);
   }
+  Serial.printf("URL buffer size: %d bytes (available: %d)\n",
+                 (int)bufferedUrl.availableForWrite(),
+                 (int)URL_BUFFER_SIZE - (int)bufferedUrl.availableForWrite());
   multiDecoder.setMimeSource(url);
 
   if (!LittleFS.begin(true)) {
@@ -51,15 +54,17 @@ void initAudioPipeline(bool sdActive) {
     Serial.println("ERROR: Failed to initialize I2S");
     return;
   }
-  i2s.setVolume(globalSettings.volume / 100.0f);
+
+  int clampedVolume = constrain(globalSettings.volume, 0, 100);
+  i2s.setVolume(clampedVolume / 100.0f);
 
   cfg_eq = eq.defaultConfig();
   cfg_eq.setAudioInfo(config);
   applyEQ();
 
-  Serial.printf("Pipeline Reset: SD_Pin_Reserved=%d | Vol=%d\n", config.sd_active, globalSettings.volume);
+  Serial.printf("Pipeline Reset: SD_Pin_Reserved=%d | Vol=%d\n", config.sd_active, clampedVolume);
   Serial.printf("Audio init: sdActive=%d vol=%d bass=%d treble=%d\n",
-                sdActive, globalSettings.volume, globalSettings.bass, globalSettings.treble);
+                sdActive, clampedVolume, globalSettings.bass, globalSettings.treble);
 }
 
 // ============================================================
@@ -97,7 +102,8 @@ bool startDecodedStream(const SourceOpenResult& result) {
     return false;
   }
 
-  i2s.setVolume(globalSettings.volume / 100.0f);
+  int clampedVolume = constrain(globalSettings.volume, 0, 100);
+  i2s.setVolume(clampedVolume / 100.0f);
   runtimeStatus.nowPlaying = (result.title != nullptr) ? result.title : "Unknown";
   runtimeStatus.lastError = "";
   runtimeStatus.playbackState = STATE_PLAYING;
@@ -132,14 +138,6 @@ void playbackSetTreble(int value) {
   audioStateUnlock();
 }
 
-CodecHint codecHintFromPath(const String& path) {
-  String lower = path;
-  lower.toLowerCase();
-  if (lower.endsWith(".mp3")) return CODEC_MP3;
-  if (lower.endsWith(".aac")) return CODEC_AAC;
-  return CODEC_UNKNOWN;
-}
-
 CodecHint codecHintFromMime(const String& mime) {
   String lower = mime;
   lower.toLowerCase();
@@ -170,4 +168,15 @@ String formatChipTemperature() {
     return "Unavailable";
   }
   return String(chipTempC, 1) + " C";
+}
+
+CodecHint codecHintFromPath(const String& path) {
+  String lower = path;
+  lower.toLowerCase();
+  if (lower.endsWith(".mp3")) return CODEC_MP3;
+  if (lower.endsWith(".aac")) return CODEC_AAC;
+  if (lower.endsWith(".m4a")) return CODEC_AAC;
+  if (lower.endsWith(".aac")) return CODEC_AAC;
+  if (lower.endsWith(".mp4")) return CODEC_AAC;
+  return CODEC_UNKNOWN;
 }

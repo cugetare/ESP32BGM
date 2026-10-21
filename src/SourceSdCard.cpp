@@ -30,28 +30,27 @@ void scanSdDirectory(File directory, uint32_t& entriesScanned) {
 void mountSD() {
   if (sdMounted) return;
 
-  SD_MMC.end();
-  delay(20);
-  if (SD_MMC.begin("/sdcard", true, true)) {
-    uint8_t type = SD_MMC.cardType();
-    uint64_t sizeMb = SD_MMC.cardSize() / (1024ULL * 1024ULL);
-    if (type == CARD_NONE || sizeMb == 0) {
-      sdMounted = false;
-      SD_MMC.end();
-      Serial.println("SD mount failed: no card detected");
-      return;
-    }
-
-    sdMounted = true;
-    const char* typeName = "UNKNOWN";
-    if (type == CARD_MMC) typeName = "MMC";
-    else if (type == CARD_SD) typeName = "SDSC";
-    else if (type == CARD_SDHC) typeName = "SDHC";
-    Serial.printf("SD OK: %s  %lluMB\n", typeName,sizeMb);
-  } else {
+  if (!SD_MMC.begin("/sdcard", true, true)) {
     sdMounted = false;
     Serial.println("SD mount failed");
+    return;
   }
+
+  uint8_t type = SD_MMC.cardType();
+  uint64_t sizeMb = SD_MMC.cardSize() / (1024ULL * 1024ULL);
+  if (type == CARD_NONE || sizeMb == 0) {
+    sdMounted = false;
+    SD_MMC.end();
+    Serial.println("SD mount failed: no card detected");
+    return;
+  }
+
+  sdMounted = true;
+  const char* typeName = "UNKNOWN";
+  if (type == CARD_MMC) typeName = "MMC";
+  else if (type == CARD_SD) typeName = "SDSC";
+  else if (type == CARD_SDHC) typeName = "SDHC";
+  Serial.printf("SD OK: %s  %lluMB\n", typeName, sizeMb);
 }
 
 bool sdRequiresNetwork() {

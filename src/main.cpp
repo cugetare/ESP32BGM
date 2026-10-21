@@ -45,6 +45,7 @@ RuntimeStatus runtimeStatus = {
 
 // --- Web server ---
 WebServer server(80);
+volatile bool webserverBusy = false;
 
 // --- Audio timing ---
 unsigned long lastAudioData = 0;

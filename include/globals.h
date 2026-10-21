@@ -133,6 +133,9 @@ extern File sdAudioFile;
 extern std::vector<Station> stations;
 extern int currentStation;
 
+// --- Webserver ---
+extern volatile bool webserverBusy;
+
 // --- Runtime ---
 extern RuntimeStatus runtimeStatus;
 
@@ -301,6 +304,7 @@ void registerRoutes();
 
 // --- WebTask.cpp ---
 void startWebTask();
+void webserverLoop();  // Handles webserverBusy flag and network management
 // Individual handlers (called by server.on lambdas internally; declared for clarity)
 void handleRoot();
 void handleWifiSetup();

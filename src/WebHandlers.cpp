@@ -265,9 +265,16 @@ void handleSaveDefaults() {
     server.send(503, "text/plain", "Audio engine busy");
     return;
   }
+
+  bool wasPlaying = (runtimeStatus.playbackState == STATE_PLAYING);
+
   settingsSaveGlobal();
   settingsSaveRadio();
   settingsSaveSd();
+
+  // Re-apply EQ settings if volume changed
+  applyEQ();
+
   audioStateUnlock();
   server.send(200, "text/plain", "Saved");
 }
@@ -375,15 +382,21 @@ void handleSaveWifi() {
 
   settingsSaveWifi(ssid, password);
   bool connected = networkEnsureRemoteAccess();
-  if (!audioStateLock(1000)) {
-    server.send(503, "text/plain", "Audio engine busy");
-    return;
+
+  if (audioStateLock(1000)) {
+    loadStations();
+    if (connected && runtimeStatus.selectedMode == PLAYBACK_RADIO_URL) {
+      bool switched = modeSwitchTo(PLAYBACK_RADIO_URL);
+      if (switched) {
+        settingsSaveRadio();
+      }
+    }
+    audioStateUnlock();
+  } else {
+    loadStations();
+    audioStateUnlock();
   }
-  loadStations();
-  audioStateUnlock();
-  if (connected && runtimeStatus.selectedMode == PLAYBACK_RADIO_URL) {
-    modeSwitchTo(PLAYBACK_RADIO_URL);
-  }
+
   server.send(200, "text/html", "<h2>WiFi saved</h2><p>Radio mode is ready. Return to the main page.</p>");
 }
 
