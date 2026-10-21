@@ -7,11 +7,9 @@
 #include <Arduino.h>
 
 #include "AudioTools.h"
-#include "AudioTools/AudioCodecs/CodecMP3Helix.h"
-#include "AudioTools/AudioCodecs/CodecAACHelix.h"
-#include "AudioTools/AudioCodecs/MultiDecoder.h"
 #include "AudioTools/AudioLibs/AudioBoardStream.h"
 #include "AudioTools/Communication/AudioHttp.h"
+#include "EspAudioDecoder.h"
 
 #include <WiFi.h>
 #include <WebServer.h>
@@ -58,11 +56,7 @@ enum NetworkState {
   NET_ERROR
 };
 
-enum CodecHint {
-  CODEC_UNKNOWN,
-  CODEC_MP3,
-  CODEC_AAC
-};
+// CodecHint lives in EspAudioDecoder.h
 
 struct MediaItem {
   String name;
@@ -165,9 +159,7 @@ extern const int DNS_PORT;
 extern AudioBoardStream i2s;
 extern Equalizer3Bands eq;
 extern ConfigEqualizer3Bands cfg_eq;
-extern MP3DecoderHelix mp3;
-extern AACDecoderHelix aac;
-extern MultiDecoder multiDecoder;
+extern EspAudioDecoder audioDecoder;
 extern URLStream url;
 extern BufferedStream bufferedUrl;
 extern EncodedAudioStream dec;

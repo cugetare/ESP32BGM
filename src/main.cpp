@@ -7,7 +7,7 @@
 const unsigned long SD_RESCAN_INTERVAL_MS  = 5000;
 const int URL_BUFFER_SIZE                  = 1024 * 64;   // 64 KB
 const int URL_BUFFER_FALLBACK_SIZE         = 1024 * 16;   // 16 KB
-const int AUDIO_TASK_STACK_SIZE            = 1024 * 8;
+const int AUDIO_TASK_STACK_SIZE            = 1024 * 16;  // esp_audio_codec decoders need headroom
 const int AUDIO_TASK_PRIORITY              = 2;
 const int WIFI_TIMEOUT_ATTEMPTS            = 20;
 const int RADIO_MAX_RECOVERIES             = 5;
@@ -80,13 +80,11 @@ AudioBoardStream i2s(AudioKitEs8388V1);
 Equalizer3Bands  eq(i2s);
 ConfigEqualizer3Bands cfg_eq;
 
-MP3DecoderHelix mp3;
-AACDecoderHelix aac;
-MultiDecoder    multiDecoder;
+EspAudioDecoder audioDecoder;
 
 URLStream      url;
 BufferedStream bufferedUrl(0);
-EncodedAudioStream dec(&eq, &multiDecoder);
+EncodedAudioStream dec(&eq, &audioDecoder);
 
 StreamCopy copierUrl(dec, bufferedUrl);
 StreamCopy copierSD(dec, sdAudioFile);

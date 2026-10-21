@@ -13,11 +13,9 @@ void initHardware() {
     Serial.println("No PSRAM");
   }
 
-  multiDecoder.addDecoder(mp3, "audio/mpeg");
-  multiDecoder.addDecoder(aac, "audio/aac");
-  multiDecoder.addDecoder(aac, "audio/aacp");
-  multiDecoder.addDecoder(aac, "audio/x-aac");
-  multiDecoder.addDecoder(aac, "audio/mp4");
+  // Equalizer3Bands does not forward format changes, so the I2S/codec must
+  // hear about sample-rate changes straight from the decoder.
+  audioDecoder.addNotifyAudioChange(i2s);
   bufferedUrl.setStream(url);
   bufferedUrl.resize(URL_BUFFER_SIZE);
   if (bufferedUrl.availableForWrite() == 0) {
@@ -27,7 +25,6 @@ void initHardware() {
   Serial.printf("URL buffer size: %d bytes (available: %d)\n",
                  (int)bufferedUrl.availableForWrite(),
                  (int)URL_BUFFER_SIZE - (int)bufferedUrl.availableForWrite());
-  multiDecoder.setMimeSource(url);
 
   if (!LittleFS.begin(true)) {
     Serial.println("LittleFS failed, continuing without storage");
@@ -87,13 +84,7 @@ bool startDecodedStream(const SourceOpenResult& result) {
   dec.end();
   activeCodec = result.codec;
 
-  bool started = dec.begin();
-  if (started) {
-    const char* mime = mimeForCodecHint(result.codec);
-    if (mime != nullptr) {
-      started = multiDecoder.selectDecoder(mime);
-    }
-  }
+  bool started = audioDecoder.setCodec(result.codec) && dec.begin();
 
   if (!started) {
     runtimeStatus.lastError = "Failed to start decoder";
@@ -141,17 +132,24 @@ void playbackSetTreble(int value) {
 CodecHint codecHintFromMime(const String& mime) {
   String lower = mime;
   lower.toLowerCase();
+  if (lower.indexOf("mpegurl") >= 0 || lower.indexOf("scpls") >= 0) return CODEC_UNKNOWN;  // playlists
   if (lower.indexOf("mpeg") >= 0 || lower.indexOf("mp3") >= 0) return CODEC_MP3;
-  if (lower.indexOf("aac") >= 0 || lower.indexOf("mp4") >= 0) return CODEC_AAC;
+  if (lower.indexOf("aac") >= 0) return CODEC_AAC;
+  if (lower.indexOf("mp4") >= 0 || lower.indexOf("m4a") >= 0) return CODEC_M4A;
+  if (lower.indexOf("flac") >= 0) return CODEC_FLAC;
+  if (lower.indexOf("ogg") >= 0 || lower.indexOf("opus") >= 0 || lower.indexOf("vorbis") >= 0) return CODEC_OGG;
+  if (lower.indexOf("wav") >= 0) return CODEC_WAV;
   return CODEC_UNKNOWN;
 }
 
 const char* mimeForCodecHint(CodecHint codec) {
   switch (codec) {
-    case CODEC_MP3:
-      return "audio/mpeg";
-    case CODEC_AAC:
-      return "audio/aac";
+    case CODEC_MP3:  return "audio/mpeg";
+    case CODEC_AAC:  return "audio/aac";
+    case CODEC_M4A:  return "audio/mp4";
+    case CODEC_FLAC: return "audio/flac";
+    case CODEC_OGG:  return "audio/ogg";
+    case CODEC_WAV:  return "audio/wav";
     case CODEC_UNKNOWN:
       break;
   }
@@ -175,8 +173,9 @@ CodecHint codecHintFromPath(const String& path) {
   lower.toLowerCase();
   if (lower.endsWith(".mp3")) return CODEC_MP3;
   if (lower.endsWith(".aac")) return CODEC_AAC;
-  if (lower.endsWith(".m4a")) return CODEC_AAC;
-  if (lower.endsWith(".aac")) return CODEC_AAC;
-  if (lower.endsWith(".mp4")) return CODEC_AAC;
+  if (lower.endsWith(".m4a") || lower.endsWith(".mp4")) return CODEC_M4A;
+  if (lower.endsWith(".flac")) return CODEC_FLAC;
+  if (lower.endsWith(".ogg") || lower.endsWith(".oga") || lower.endsWith(".opus")) return CODEC_OGG;
+  if (lower.endsWith(".wav")) return CODEC_WAV;
   return CODEC_UNKNOWN;
 }

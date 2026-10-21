@@ -1,7 +1,6 @@
 #include "globals.h"
 bool isSupportedTrack(const String& name) {
-  CodecHint codec = codecHintFromPath(name);
-  return codec == CODEC_MP3 || codec == CODEC_AAC;
+  return codecHintFromPath(name) != CODEC_UNKNOWN;
 }
 
 void scanSdDirectory(File directory, uint32_t& entriesScanned) {
@@ -11,7 +10,9 @@ void scanSdDirectory(File directory, uint32_t& entriesScanned) {
     if (entry.isDirectory()) {
       scanSdDirectory(entry, entriesScanned);
     } else {
-      String name = String(entry.name());
+      // path() is the full path; name() is only the leaf in core 2.x, which
+      // broke playback of files inside /music or sub-folders.
+      String name = String(entry.path());
       if (isSupportedTrack(name)) {
         sdTracks.push_back(name);
       }
@@ -184,6 +185,7 @@ void sdLoop() {
   }
 
   if (!sdTracks.empty()) {
+    audioDecoder.finish();  // flush parser caches (FLAC) before the next track
     currentSDTrack++;
     if (currentSDTrack >= (int)sdTracks.size()) currentSDTrack = 0;
     SourceOpenResult out = { nullptr, CODEC_UNKNOWN, "", false, false, true };

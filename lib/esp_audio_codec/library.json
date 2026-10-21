@@ -1,0 +1,20 @@
+{
+  "name": "esp_audio_codec",
+  "version": "2.5.0",
+  "description": "Espressif esp_audio_codec (prebuilt, ESP32 target) vendored from the ESP Component Registry for use under Arduino/PlatformIO.",
+  "license": "LicenseRef-Espressif-Modified-MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/espressif/esp-adf-libs/tree/master/esp_audio_codec"
+  },
+  "frameworks": "arduino",
+  "platforms": "espressif32",
+  "build": {
+    "includeDir": "include",
+    "flags": [
+      "-L$PROJECT_DIR/lib/esp_audio_codec/lib/esp32",
+      "-lesp_audio_simple_dec",
+      "-lesp_audio_codec"
+    ]
+  }
+}
