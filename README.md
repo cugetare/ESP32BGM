@@ -8,8 +8,8 @@ A stand-alone background-music player built on the **Ai-Thinker ESP32 Audio Kit*
 (ESP32-A1S module, ES8388 codec). It plays internet radio or music from the SD
 card and is controlled from a built-in web page.
 
-> **This branch (`idf-port`) is the native ESP-IDF 5.x firmware.** The original
-> Arduino/PlatformIO version is on the `bgm-core` branch.
+> **`main` is the native ESP-IDF 5.x firmware** (developed on `idf-port`). The
+> original Arduino/PlatformIO version is on the `bgm-core` branch.
 
 ## Features
 
