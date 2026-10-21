@@ -503,6 +503,14 @@ static esp_err_t handleUpdateUpload(httpd_req_t* req) {
   return sendText(req, 200, "OK, rebooting");
 }
 
+// Browsers ask for an icon on every page; answer "no content" instead of
+// falling into the 404 handler (which logs a warning each time).
+static esp_err_t handleFavicon(httpd_req_t* req) {
+  httpd_resp_set_status(req, "204 No Content");
+  httpd_resp_set_hdr(req, "Cache-Control", "max-age=86400");
+  return httpd_resp_send(req, nullptr, 0);
+}
+
 static esp_err_t handleLogsPage(httpd_req_t* req) {
   std::string html = logs_html_start;
   std::string ip = networkStaIp();
@@ -562,6 +570,7 @@ static const Route ROUTES[] = {
   { "/diagnostics",    handleDiagnostics,    true,  true  },
   { "/logs",           handleLogsPage,       true,  false },
   { "/logtail",        handleLogTail,        true,  false },
+  { "/favicon.ico",    handleFavicon,        true,  false },
 };
 
 bool startWebServer() {

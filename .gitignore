@@ -6,3 +6,6 @@ sdkconfig.old
 *.bin
 *.elf
 *.log
+
+# Signing keys never belong in the repo
+*.pem

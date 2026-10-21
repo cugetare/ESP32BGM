@@ -62,3 +62,15 @@ CONFIG_BOOTLOADER_LOG_LEVEL_WARN=y
 # CONFIG_AUDIO_ENCODER_SBC_SUPPORT is not set
 # CONFIG_AUDIO_ENCODER_LC3_SUPPORT is not set
 # CONFIG_AUDIO_ENCODER_G722_SUPPORT is not set
+
+# ---- Signed OTA (no Secure Boot, no eFuses) ----
+# Only images signed with the RSA-3072 key below pass /update; the
+# bootloader does not check signatures, so USB flashing always works.
+# RSA signatures need ESP32 rev >= 3.0 (this board is v3.1).
+CONFIG_ESP32_REV_MIN_3=y
+CONFIG_SECURE_SIGNED_APPS_NO_SECURE_BOOT=y
+CONFIG_SECURE_SIGNED_APPS_RSA_SCHEME=y
+CONFIG_SECURE_SIGNED_ON_UPDATE_NO_SECURE_BOOT=y
+CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES=y
+# Path is relative to the project dir; keep the key out of the repo.
+CONFIG_SECURE_BOOT_SIGNING_KEY="../ESP32BGM-keys/ota_signing_key.pem"

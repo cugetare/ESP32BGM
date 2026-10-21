@@ -41,7 +41,8 @@ card and is controlled from a built-in web page.
 - Settings are kept across reboots in NVS: mode, volume, EQ, last station,
   last track and the station list.
 - **OTA firmware updates** from the web UI (`/update`), with automatic rollback
-  if the new image doesn't come up.
+  if the new image doesn't come up. Only images signed with your RSA-3072 key
+  are accepted.
 - **Remote logs**: every log line is kept in a 32 KB ring buffer, viewable
   live at `/logs` or over TCP with `nc <device-ip> 2323`.
 
@@ -168,8 +169,37 @@ back to the previous slot. A file that isn't an ESP32 image is rejected right
 away and playback resumes. Bump `VERSION` for each release so `/update` shows
 what is running.
 
-> There is no authentication on `/update` (or anywhere in the web UI): anyone
-> on the same network can flash the device.
+### Signed firmware
+
+Every build is signed (`build/ESP32BGM.bin`; the unsigned image is
+`build/ESP32BGM-unsigned.bin`). The running firmware checks the signature at the
+end of an upload and refuses anything that isn't signed with the same key
+(`Image verification failed: ESP_ERR_OTA_VALIDATE_FAILED`, with `image valid,
+signature bad` in the log).
+
+- This is ESP-IDF's “signed app images without Secure Boot”, with the RSA scheme
+  (needs ESP32 rev ≥ 3.0, hence `CONFIG_ESP32_REV_MIN_3`). **No eFuses are
+  burned and the bootloader doesn't check signatures**, so flashing over USB
+  always works and can undo all of it.
+- The private key is read from `../ESP32BGM-keys/ota_signing_key.pem`, a folder
+  next to the project, set in `CONFIG_SECURE_BOOT_SIGNING_KEY`. `*.pem` is in
+  `.gitignore`. **Keep a backup of the key**: without it the device takes no
+  more OTA updates until you flash it over USB with a build signed by a new key.
+- To create a key on a new machine:
+
+  ```bash
+  python -m espsecure generate_signing_key --version 2 --scheme rsa3072 ../ESP32BGM-keys/ota_signing_key.pem
+  ```
+
+- To check a build locally:
+
+  ```bash
+  python -m espsecure verify_signature --version 2 --keyfile ../ESP32BGM-keys/ota_signing_key.pem build/ESP32BGM.bin
+  ```
+
+The web UI itself has no password: the device is meant for a trusted home
+network. Anyone on that network can change settings or reboot it, but can't
+install firmware without the key.
 
 ## Logs
 
@@ -246,7 +276,7 @@ Any other path returns the main page, which is what captive-portal checks expect
 | Wi-Fi drop | Reconnected only when the radio recovery ran | Reconnects on its own |
 | No credentials in SD mode | No web UI | Setup AP starts |
 | Static internal RAM | ~94 KB | ~37 KB |
-| Updates | USB only | OTA from the web UI, with rollback |
+| Updates | USB only | Signed OTA from the web UI, with rollback |
 | Logs | Serial only | Serial + `/logs` + TCP 2323 |
 
 ### Not yet at feature parity
@@ -261,13 +291,13 @@ Any other path returns the main page, which is what captive-portal checks expect
 - Tested on hardware: radio (AAC and MP3), Wi-Fi setup, SD card (SDHC 64 GB,
   555 tracks across sub-folders, UTF-8 names, mono and stereo MP3 with large
   ID3 tags, auto-advance to the next track), FLAC and OGG, OTA (upload, reboot into the other slot, mark valid,
-  rejection of a non-firmware file), `/logs` and TCP logs. Not yet tested on
+  rejection of a non-firmware file, rejection of unsigned and wrong-key images),
+  `/logs` and TCP logs. Not yet tested on
   hardware: M4A, HTTPS streams, playlist URLs.
 
 ## Roadmap
 
 - [ ] Test on hardware: M4A, HTTPS streams, playlist URLs.
-- [ ] Authentication for the web UI and `/update`.
 - [ ] FTP library source.
 - [ ] MQTT bridge.
 - [ ] Hardware keys (GPIO 36/13/19/23/18/5) for play/pause/next/volume.
