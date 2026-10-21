@@ -142,6 +142,25 @@ rattle drops. Add the enhancer last.
 With everything on, the chain uses about 8 % of real time on one core
 (measured on the board; logged once a minute as `audio_out: DSP load`).
 
+## Releases
+
+Each [GitHub release](https://github.com/cugetare/ESP32BGM/releases) carries
+the signed app image plus the files for a first-time USB flash:
+
+| File | Use |
+|---|---|
+| `ESP32BGM.bin` | Signed app: install from `/update` (OTA), or flash at `0x20000` |
+| `bootloader.bin`, `partition-table.bin`, `ota_data_initial.bin` | Only for a first USB flash, or when coming from an older partition layout |
+
+First flash over USB, without building (port as needed):
+
+```bash
+python -m esptool --chip esp32 -p COM3 -b 921600 write_flash --flash_mode dio --flash_freq 80m 0x1000 bootloader.bin 0x8000 partition-table.bin 0x19000 ota_data_initial.bin 0x20000 ESP32BGM.bin
+```
+
+A release image is signed with the project key, so a device running a build
+signed with a different key rejects it over OTA. Flash it over USB instead.
+
 ## Building & flashing
 
 Requires **ESP-IDF 5.4 or newer** (developed with 5.5.1).
@@ -306,6 +325,7 @@ Any other path returns the main page, which is what captive-portal checks expect
 | Static internal RAM | ~94 KB | ~37 KB |
 | Updates | USB only | Signed OTA from the web UI, with rollback |
 | Logs | Serial only | Serial + `/logs` + TCP 2323 |
+| Sound | Software volume, 3-band EQ | Hardware volume; mono, biquad tone, enhancer, exciter protection, resonance notch |
 
 ### Not yet at feature parity
 
