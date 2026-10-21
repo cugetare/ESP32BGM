@@ -19,6 +19,8 @@
     button.alt{background:#666}
     .now{background:#e7f3ff;padding:12px;border-radius:5px;text-align:center;margin-bottom:16px}
     .now strong{color:#0066cc}
+    .hint{display:block;font-size:12px;color:#888;font-weight:normal}
+    .chk{display:flex;gap:8px;align-items:center;cursor:pointer}
     .status{background:#fff8e1;padding:12px;border-radius:5px;margin-bottom:16px;color:#6b5600;font-size:14px}
   </style>
 </head>
@@ -56,9 +58,33 @@
     <div class="val" id="td">{{CURRENT_TREBLE}}</div>
     <input type="range" min="-10" max="10" value="{{CURRENT_TREBLE}}" oninput="updateTreble(this.value)">
   </div>
+
+  <h2>Sound</h2>
+  <div class="grp">
+    <label class="chk"><input type="checkbox" {{MONO_CHECKED}} onchange="setSound('mono',this.checked?1:0)"> Mono (same signal on both channels)</label>
+  </div>
+  <div class="grp">
+    <label>Sound enhancer <span class="hint">wide &amp; deep; depth backs off above ~45% volume</span></label>
+    <div class="val" id="enh-d"></div>
+    <input type="range" min="0" max="100" value="{{ENH}}" oninput="soundSlider('enh',this.value)">
+  </div>
+  <div class="grp">
+    <label>Exciter protection <span class="hint">high-pass, keeps low bass off the exciter</span></label>
+    <div class="val" id="hpf-d"></div>
+    <input type="range" min="0" max="400" step="10" value="{{HPF}}" oninput="soundSlider('hpf',this.value)">
+  </div>
+  <div class="grp">
+    <label>Resonance notch <span class="hint">cut at the exciter / panel resonance</span></label>
+    <div class="val" id="nhz-d"></div>
+    <input type="range" min="100" max="2000" step="10" value="{{NHZ}}" oninput="soundSlider('nhz',this.value)">
+    <div class="val" id="ndb-d"></div>
+    <input type="range" min="0" max="12" value="{{NDB}}" oninput="soundSlider('ndb',this.value)">
+  </div>
   <button onclick="saveDefaults()">Save as Default</button>
   <button onclick="location.href='/sdinfo'">SD Card Info</button>
   <button class="alt" onclick="location.href='/diagnostics'">Diagnostics</button>
+  <button class="alt" onclick="location.href='/logs'">Logs</button>
+  <button class="alt" onclick="location.href='/update'">Firmware Update</button>
   <button class="danger" onclick="resetWifi()">Reset WiFi</button>
   <button class="danger" onclick="reboot()">Reboot</button>
 </div>
@@ -66,6 +92,22 @@
   function updateVolume(v){document.getElementById('vd').innerText=v;fetch('/setvolume?v='+v)}
   function updateBass(v){document.getElementById('bd').innerText=v;fetch('/setbass?v='+v)}
   function updateTreble(v){document.getElementById('td').innerText=v;fetch('/settreble?v='+v)}
+  const soundLabel={
+    enh:v=>v==0?'Off':(v<=40?'Warm ':v<=75?'Full ':'Punch ')+v,
+    hpf:v=>v==0?'Off':v+' Hz',
+    nhz:v=>v+' Hz',
+    ndb:v=>v==0?'Off':'-'+v+' dB'
+  };
+  const soundTimers={};
+  function setSound(k,v){fetch('/setsound?k='+k+'&v='+v)}
+  function soundSlider(k,v){
+    document.getElementById(k+'-d').innerText=soundLabel[k](+v);
+    clearTimeout(soundTimers[k]);
+    soundTimers[k]=setTimeout(()=>setSound(k,v),120);
+  }
+  [['enh',{{ENH}}],['hpf',{{HPF}}],['nhz',{{NHZ}}],['ndb',{{NDB}}]].forEach(([k,v])=>{
+    document.getElementById(k+'-d').innerText=soundLabel[k](v);
+  });
   function changeMode(m){
     fetch('/setmode?m='+m,{method:'POST'})
       .then(r=>{ if(!r.ok) throw new Error(); return r.text(); })

@@ -1,5 +1,11 @@
-#include "globals.h"
-String playbackModeLabel(PlaybackMode mode) {
+// ============================================================
+//  MODE MANAGER
+//  Callers from other tasks take the audio state lock (recursive),
+//  so the audio task never sees a half-switched source.
+// ============================================================
+#include "app_state.h"
+
+const char* playbackModeLabel(PlaybackMode mode) {
   switch (mode) {
     case PLAYBACK_RADIO_URL: return "Radio URL";
     case PLAYBACK_SD_CARD: return "SD Card";
@@ -8,7 +14,7 @@ String playbackModeLabel(PlaybackMode mode) {
   return "Unknown";
 }
 
-String playbackStateLabel(PlaybackState state) {
+const char* playbackStateLabel(PlaybackState state) {
   switch (state) {
     case STATE_STOPPED: return "Stopped";
     case STATE_STARTING: return "Starting";
@@ -20,7 +26,7 @@ String playbackStateLabel(PlaybackState state) {
   return "Unknown";
 }
 
-String networkStateLabel(NetworkState state) {
+const char* networkStateLabel(NetworkState state) {
   switch (state) {
     case NET_OFF: return "Off";
     case NET_AP_ONLY: return "AP";
@@ -33,10 +39,6 @@ String networkStateLabel(NetworkState state) {
 
 bool modeRequiresNetwork(PlaybackMode mode) {
   return mode == PLAYBACK_RADIO_URL || mode == PLAYBACK_FTP_LIBRARY;
-}
-
-bool modeUsesSdPins(PlaybackMode mode) {
-  return mode == PLAYBACK_SD_CARD;
 }
 
 void modeStop() {
@@ -55,15 +57,13 @@ void modeStop() {
 }
 
 bool modeOpenSelection() {
-  SourceOpenResult out = { nullptr, CODEC_UNKNOWN, "", false, false, false };
-
   switch (runtimeStatus.selectedMode) {
     case PLAYBACK_RADIO_URL:
-      return radioOpenSelected(out);
+      return radioOpenSelected();
     case PLAYBACK_SD_CARD:
-      return sdOpenSelected(out);
+      return sdOpenSelected();
     case PLAYBACK_FTP_LIBRARY:
-      return ftpOpenSelected(out);
+      return ftpOpenSelected();
   }
   return false;
 }
@@ -80,10 +80,14 @@ bool modeSwitchTo(PlaybackMode mode) {
 
   modeStop();
 
+  if (modeRequiresNetwork(mode)) {
+    loadStations();
+  }
+
   globalSettings.selectedMode = mode;
   runtimeStatus.selectedMode = mode;
   runtimeStatus.playbackState = STATE_STARTING;
-  runtimeStatus.lastError = "";
+  runtimeStatus.lastError.clear();
   settingsSaveGlobal();
 
   if (modeRequiresNetwork(mode)) {
@@ -108,7 +112,6 @@ bool modeSwitchTo(PlaybackMode mode) {
       started = ftpBegin();
       break;
   }
-
   if (!started) {
     runtimeStatus.playbackState = STATE_ERROR;
     audioStateUnlock();
@@ -120,22 +123,21 @@ bool modeSwitchTo(PlaybackMode mode) {
     return true;
   }
 
+  // The remembered SD track may be gone or unreadable: try the others.
   if (mode == PLAYBACK_SD_CARD && !sdTracks.empty()) {
+    int failed = currentSDTrack;
     for (size_t i = 0; i < sdTracks.size(); ++i) {
-      if ((int)i == currentSDTrack) continue;
-      currentSDTrack = i;
+      if ((int)i == failed) continue;
+      currentSDTrack = (int)i;
       if (modeOpenSelection()) {
         settingsSaveSd();
         audioStateUnlock();
         return true;
       }
     }
-
-    runtimeStatus.playbackState = STATE_ERROR;
-    audioStateUnlock();
-    return true;
   }
 
+  runtimeStatus.playbackState = STATE_ERROR;
   audioStateUnlock();
   return false;
 }
@@ -176,9 +178,12 @@ void playbackPause() {
     return;
   }
 
+  // A live stream cannot be paused; drop it and reconnect on play.
   if (runtimeStatus.selectedMode == PLAYBACK_RADIO_URL) {
     radioEnd();
+    audioDecoder.end();
   }
+  audioOutputSilence();
   runtimeStatus.playbackState = STATE_PAUSED;
   audioStateUnlock();
 }
@@ -196,7 +201,6 @@ bool playbackSelectItem(int index) {
   }
 
   bool ok = false;
-
   switch (runtimeStatus.selectedMode) {
     case PLAYBACK_RADIO_URL:
       ok = radioSelectStation(index);
@@ -209,11 +213,7 @@ bool playbackSelectItem(int index) {
       break;
   }
 
-  if (!ok) {
-    audioStateUnlock();
-    return false;
-  }
-  bool opened = modeOpenSelection();
+  bool opened = ok && modeOpenSelection();
   audioStateUnlock();
   return opened;
 }
@@ -224,48 +224,32 @@ bool playbackRefreshLibrary() {
     return false;
   }
 
+  bool ok = false;
   switch (runtimeStatus.selectedMode) {
     case PLAYBACK_SD_CARD:
-      if (!sdRefreshLibrary()) {
-        audioStateUnlock();
-        return false;
-      }
-      {
-        bool opened = modeOpenSelection();
-        audioStateUnlock();
-        return opened;
-      }
+      ok = sdRefreshLibrary() && modeOpenSelection();
+      break;
     case PLAYBACK_FTP_LIBRARY:
-      {
-        bool refreshed = ftpRefreshLibrary();
-        audioStateUnlock();
-        return refreshed;
-      }
+      ok = ftpRefreshLibrary();
+      break;
     case PLAYBACK_RADIO_URL:
-      if (!radioBegin()) {
-        audioStateUnlock();
-        return false;
-      }
-      {
-        bool opened = modeOpenSelection();
-        audioStateUnlock();
-        return opened;
-      }
+      ok = radioBegin() && modeOpenSelection();
+      break;
   }
   audioStateUnlock();
-  return false;
+  return ok;
 }
 
-void modeLoop() {
+// Called by the audio task with the state lock held.
+// Returns true when it moved audio data this iteration.
+bool modeLoop() {
   switch (runtimeStatus.selectedMode) {
     case PLAYBACK_RADIO_URL:
-      radioLoop();
-      break;
+      return radioLoop();
     case PLAYBACK_SD_CARD:
-      sdLoop();
-      break;
+      return sdLoop();
     case PLAYBACK_FTP_LIBRARY:
-      ftpLoop();
-      break;
+      return ftpLoop();
   }
+  return false;
 }

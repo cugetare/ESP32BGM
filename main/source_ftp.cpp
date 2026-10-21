@@ -1,7 +1,7 @@
-#include "globals.h"
-bool ftpRequiresNetwork() {
-  return true;
-}
+// ============================================================
+//  FTP LIBRARY SOURCE (not implemented yet)
+// ============================================================
+#include "app_state.h"
 
 bool ftpBegin() {
   runtimeStatus.lastError = "FTP mode not implemented yet";
@@ -12,7 +12,8 @@ bool ftpBegin() {
 void ftpEnd() {
 }
 
-void ftpLoop() {
+bool ftpLoop() {
+  return false;
 }
 
 bool ftpRefreshLibrary() {
@@ -21,18 +22,12 @@ bool ftpRefreshLibrary() {
 }
 
 bool ftpSelectItem(int index) {
-  ftpSettings.currentIndex = index;
+  (void)index;
   runtimeStatus.lastError = "FTP selection not implemented yet";
   return false;
 }
 
-bool ftpOpenSelected(SourceOpenResult& out) {
-  out.stream = nullptr;
-  out.codec = CODEC_UNKNOWN;
-  out.title = "";
-  out.isLive = false;
-  out.seekable = false;
-  out.usesSdPins = false;
+bool ftpOpenSelected() {
   runtimeStatus.lastError = "FTP open not implemented yet";
   return false;
 }
