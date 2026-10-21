@@ -26,6 +26,12 @@ static bool s_wifiStarted = false;
 static volatile bool s_wantSta = false;
 static volatile bool s_apActive = false;
 static char s_staIp[16] = "";
+static wifi_config_t s_staConfig = {};
+static wifi_config_t s_apConfig = {};
+
+// Setup AP subnet. 192.168.4.x (the IDF default) is a common home LAN range;
+// overlapping it with the STA network breaks routing while both are up.
+static const uint8_t AP_IP[4] = { 192, 168, 71, 1 };
 
 static void onWifiEvent(void* arg, esp_event_base_t base, int32_t id, void* data) {
   (void)arg;
@@ -52,6 +58,14 @@ void networkInit() {
   s_staNetif = esp_netif_create_default_wifi_sta();
   s_apNetif = esp_netif_create_default_wifi_ap();
   esp_netif_set_hostname(s_staNetif, "esp32bgm");
+
+  esp_netif_ip_info_t apIp = {};
+  IP4_ADDR(&apIp.ip, AP_IP[0], AP_IP[1], AP_IP[2], AP_IP[3]);
+  IP4_ADDR(&apIp.gw, AP_IP[0], AP_IP[1], AP_IP[2], AP_IP[3]);
+  IP4_ADDR(&apIp.netmask, 255, 255, 255, 0);
+  esp_netif_dhcps_stop(s_apNetif);
+  esp_netif_set_ip_info(s_apNetif, &apIp);
+  esp_netif_dhcps_start(s_apNetif);
 
   wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
   ESP_ERROR_CHECK(esp_wifi_init(&cfg));
@@ -97,7 +111,11 @@ static void applyMode() {
     return;
   }
 
+  // Configs go in before esp_wifi_start(): STA_START triggers the first
+  // connect, which would otherwise run without an SSID.
   esp_wifi_set_mode(mode);
+  if (s_wantSta) esp_wifi_set_config(WIFI_IF_STA, &s_staConfig);
+  if (s_apActive) esp_wifi_set_config(WIFI_IF_AP, &s_apConfig);
   if (!s_wifiStarted) {
     esp_wifi_start();
     esp_wifi_set_ps(WIFI_PS_NONE);  // power save adds latency spikes to streams
@@ -116,7 +134,8 @@ void networkStopAp() {
 void networkStartConfigPortal() {
   if (s_apActive) return;
 
-  wifi_config_t ap = {};
+  wifi_config_t& ap = s_apConfig;
+  ap = {};
   strlcpy((char*)ap.ap.ssid, CONFIG_AP_SSID, sizeof(ap.ap.ssid));
   strlcpy((char*)ap.ap.password, CONFIG_AP_PASSWORD, sizeof(ap.ap.password));
   ap.ap.ssid_len = strlen(CONFIG_AP_SSID);
@@ -126,7 +145,6 @@ void networkStartConfigPortal() {
 
   s_apActive = true;
   applyMode();
-  esp_wifi_set_config(WIFI_IF_AP, &ap);
 
   esp_netif_ip_info_t ipInfo = {};
   esp_netif_get_ip_info(s_apNetif, &ipInfo);
@@ -136,7 +154,8 @@ void networkStartConfigPortal() {
 }
 
 static bool connectSta() {
-  wifi_config_t sta = {};
+  wifi_config_t& sta = s_staConfig;
+  sta = {};
   strlcpy((char*)sta.sta.ssid, wifiSettings.ssid.c_str(), sizeof(sta.sta.ssid));
   strlcpy((char*)sta.sta.password, wifiSettings.password.c_str(), sizeof(sta.sta.password));
   sta.sta.threshold.authmode = wifiSettings.password.empty() ? WIFI_AUTH_OPEN : WIFI_AUTH_WPA_PSK;
@@ -146,7 +165,6 @@ static bool connectSta() {
   bool wasStarted = s_wifiStarted;
   s_wantSta = true;
   applyMode();
-  esp_wifi_set_config(WIFI_IF_STA, &sta);
   runtimeStatus.networkState = NET_STA_CONNECTING;
   if (wasStarted) {
     esp_wifi_disconnect();  // the disconnect event reconnects with the new config

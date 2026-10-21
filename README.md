@@ -132,8 +132,8 @@ bundle, FATFS long file names and the Wi-Fi/LWIP buffer sizes for streaming.
 ## Usage
 
 1. On first boot, connect to the **ESP32-Radio-Setup** Wi-Fi network (password
-   `radiosetup`). The captive portal opens the main page; go to **Setup** and
-   enter your Wi-Fi network.
+   `radiosetup`). The captive portal opens the main page (or browse to
+   `http://192.168.71.1/`); go to **Setup** and enter your Wi-Fi network.
 2. Once the device is connected, open the IP address shown on the serial
    monitor (`net: connected, IP …`) in a browser.
 3. Choose **Radio URL** or **SD Card**, then use Play / Pause, the station or
