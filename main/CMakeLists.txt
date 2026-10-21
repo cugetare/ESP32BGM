@@ -2,6 +2,7 @@ idf_component_register(
     SRCS "main.cpp"
          "audio_decoder.cpp"
          "audio_output.cpp"
+         "audio_dsp.cpp"
          "audio_task.cpp"
          "mode_manager.cpp"
          "source_radio.cpp"

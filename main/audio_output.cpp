@@ -1,7 +1,7 @@
 // ============================================================
 //  AUDIO OUTPUT
-//  ES8388 codec (I2C control) + I2S TX via esp_codec_dev, with a
-//  3-band equalizer in front. Pins: Ai-Thinker ESP32 Audio Kit v2.2.
+//  ES8388 codec (I2C control) + I2S TX via esp_codec_dev, with the
+//  DSP chain (audio_dsp.cpp) in front. Pins: Ai-Thinker ESP32 Audio Kit v2.2.
 // ============================================================
 #include "app_state.h"
 
@@ -11,10 +11,13 @@
 
 #include "driver/i2c_master.h"
 #include "driver/i2s_std.h"
+#include "driver/gpio.h"
+#include "esp_rom_sys.h"
 #include "esp_codec_dev.h"
 #include "esp_codec_dev_defaults.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "es8388_codec.h"
 
 static const char* TAG = "audio_out";
@@ -36,65 +39,8 @@ static i2s_chan_handle_t s_tx = nullptr;
 static uint32_t s_sampleRate = 0;
 static int s_volume = 50;
 static int16_t* s_scratch = nullptr;
-
-// ============================================================
-//  3-BAND EQUALIZER
-//  Same algorithm as arduino-audio-tools Equalizer3Bands
-//  (musicdsp.org "3 band equaliser"), 880 Hz / 5 kHz split.
-// ============================================================
-struct EqChannel {
-  float f1p0, f1p1, f1p2, f1p3;
-  float f2p0, f2p1, f2p2, f2p3;
-  float sdm1, sdm2, sdm3;
-};
-
-static const float EQ_FREQ_LOW = 880.0f;
-static const float EQ_FREQ_HIGH = 5000.0f;
-static const float EQ_VSA = 1.0f / 4294967295.0f;  // denormal guard
-
-static EqChannel s_eq[2];
-static float s_eqLf = 0, s_eqHf = 0;
-static volatile float s_gainLow = 1.0f;
-static volatile float s_gainHigh = 1.0f;
-static volatile bool s_eqEnabled = false;
-
-static void eqConfigure(uint32_t sampleRate) {
-  memset(s_eq, 0, sizeof(s_eq));
-  s_eqLf = 2.0f * sinf((float)M_PI * (EQ_FREQ_LOW / (float)sampleRate));
-  s_eqHf = 2.0f * sinf((float)M_PI * (EQ_FREQ_HIGH / (float)sampleRate));
-}
-
-static inline int16_t eqSample(EqChannel& es, float sample, float lowGain, float highGain) {
-  es.f1p0 += (s_eqLf * (sample - es.f1p0)) + EQ_VSA;
-  es.f1p1 += (s_eqLf * (es.f1p0 - es.f1p1));
-  es.f1p2 += (s_eqLf * (es.f1p1 - es.f1p2));
-  es.f1p3 += (s_eqLf * (es.f1p2 - es.f1p3));
-  float l = es.f1p3;
-
-  es.f2p0 += (s_eqHf * (sample - es.f2p0)) + EQ_VSA;
-  es.f2p1 += (s_eqHf * (es.f2p0 - es.f2p1));
-  es.f2p2 += (s_eqHf * (es.f2p1 - es.f2p2));
-  es.f2p3 += (s_eqHf * (es.f2p2 - es.f2p3));
-  float h = es.sdm3 - es.f2p3;
-  float m = es.sdm3 - (h + l);
-
-  es.sdm3 = es.sdm2;
-  es.sdm2 = es.sdm1;
-  es.sdm1 = sample;
-
-  float outValue = l * lowGain + m + h * highGain;
-  if (outValue > 32767.0f) outValue = 32767.0f;
-  if (outValue < -32768.0f) outValue = -32768.0f;
-  return (int16_t)outValue;
-}
-
-void audioOutputSetEq(int bass, int treble) {
-  bass = std::clamp(bass, -10, 10);
-  treble = std::clamp(treble, -10, 10);
-  s_gainLow = 1.0f + (bass / 10.0f);
-  s_gainHigh = 1.0f + (treble / 10.0f);
-  s_eqEnabled = (bass != 0 || treble != 0);
-}
+static int64_t s_dspUs = 0;    // time spent in dspProcess
+static int64_t s_audioUs = 0;  // audio duration processed
 
 // ============================================================
 //  CODEC / I2S
@@ -118,14 +64,43 @@ static bool openCodec(uint32_t sampleRate) {
   s_sampleRate = sampleRate;
   esp_codec_dev_set_out_vol(s_codec, s_volume);
   esp_codec_dev_set_out_mute(s_codec, s_volume == 0);
-  eqConfigure(sampleRate);
   ESP_LOGI(TAG, "output %lu Hz, 16-bit stereo", (unsigned long)sampleRate);
   return true;
 }
 
-bool audioOutputInit() {
-  if (s_codec != nullptr) return true;
+// A software reset (OTA, esp_restart) does not power-cycle the ES8388.
+// If the reset hit mid-transfer, the codec can still hold SDA low.
+// Clock SCL until it lets go, then send a STOP (standard bus recovery).
+static void i2cBusRecover() {
+  gpio_config_t io = {};
+  io.pin_bit_mask = (1ULL << PIN_I2C_SCL) | (1ULL << PIN_I2C_SDA);
+  io.mode = GPIO_MODE_INPUT_OUTPUT_OD;
+  io.pull_up_en = GPIO_PULLUP_ENABLE;
+  gpio_config(&io);
+  gpio_set_level(PIN_I2C_SDA, 1);
+  gpio_set_level(PIN_I2C_SCL, 1);
+  esp_rom_delay_us(10);
 
+  for (int i = 0; i < 9 && gpio_get_level(PIN_I2C_SDA) == 0; i++) {
+    gpio_set_level(PIN_I2C_SCL, 0);
+    esp_rom_delay_us(10);
+    gpio_set_level(PIN_I2C_SCL, 1);
+    esp_rom_delay_us(10);
+  }
+  // STOP: SDA rises while SCL is high.
+  gpio_set_level(PIN_I2C_SCL, 0);
+  esp_rom_delay_us(10);
+  gpio_set_level(PIN_I2C_SDA, 0);
+  esp_rom_delay_us(10);
+  gpio_set_level(PIN_I2C_SCL, 1);
+  esp_rom_delay_us(10);
+  gpio_set_level(PIN_I2C_SDA, 1);
+  esp_rom_delay_us(10);
+  gpio_reset_pin(PIN_I2C_SCL);
+  gpio_reset_pin(PIN_I2C_SDA);
+}
+
+static i2c_master_bus_handle_t createI2cBus() {
   i2c_master_bus_config_t busCfg = {};
   busCfg.i2c_port = I2C_NUM_0;
   busCfg.sda_io_num = PIN_I2C_SDA;
@@ -134,10 +109,12 @@ bool audioOutputInit() {
   busCfg.glitch_ignore_cnt = 7;
   busCfg.flags.enable_internal_pullup = true;
   i2c_master_bus_handle_t bus = nullptr;
-  if (i2c_new_master_bus(&busCfg, &bus) != ESP_OK) {
-    ESP_LOGE(TAG, "I2C bus init failed");
-    return false;
-  }
+  if (i2c_new_master_bus(&busCfg, &bus) != ESP_OK) return nullptr;
+  return bus;
+}
+
+bool audioOutputInit() {
+  if (s_codec != nullptr) return true;
 
   i2s_chan_config_t chanCfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
   chanCfg.dma_desc_num = 8;
@@ -167,22 +144,47 @@ bool audioOutputInit() {
   i2sCfg.rx_handle = nullptr;
   const audio_codec_data_if_t* dataIf = audio_codec_new_i2s_data(&i2sCfg);
 
-  audio_codec_i2c_cfg_t i2cCfg = {};
-  i2cCfg.port = I2C_NUM_0;
-  i2cCfg.addr = ES8388_CODEC_DEFAULT_ADDR;
-  i2cCfg.bus_handle = bus;
-  const audio_codec_ctrl_if_t* ctrlIf = audio_codec_new_i2c_ctrl(&i2cCfg);
   const audio_codec_gpio_if_t* gpioIf = audio_codec_new_gpio();
+  const audio_codec_ctrl_if_t* ctrlIf = nullptr;
+  const audio_codec_if_t* codecIf = nullptr;
 
-  es8388_codec_cfg_t esCfg = {};
-  esCfg.ctrl_if = ctrlIf;
-  esCfg.gpio_if = gpioIf;
-  esCfg.codec_mode = ESP_CODEC_DEV_WORK_MODE_DAC;
-  esCfg.master_mode = false;
-  esCfg.pa_pin = PIN_PA_EN;
-  esCfg.pa_reverted = false;
-  const audio_codec_if_t* codecIf = es8388_codec_new(&esCfg);
-  if (dataIf == nullptr || ctrlIf == nullptr || codecIf == nullptr) {
+  // On this board the first ES8388 init after a soft reset usually fails
+  // with a NACK on a register write (the address still ACKs); a second
+  // attempt 50 ms later has always worked. Retry up to three times.
+  for (int attempt = 1; attempt <= 3 && codecIf == nullptr; ++attempt) {
+    i2cBusRecover();
+    i2c_master_bus_handle_t bus = createI2cBus();
+    if (bus == nullptr) {
+      ESP_LOGE(TAG, "I2C bus init failed");
+      return false;
+    }
+
+    audio_codec_i2c_cfg_t i2cCfg = {};
+    i2cCfg.port = I2C_NUM_0;
+    i2cCfg.addr = ES8388_CODEC_DEFAULT_ADDR;
+    i2cCfg.bus_handle = bus;
+    ctrlIf = audio_codec_new_i2c_ctrl(&i2cCfg);
+
+    es8388_codec_cfg_t esCfg = {};
+    esCfg.ctrl_if = ctrlIf;
+    esCfg.gpio_if = gpioIf;
+    esCfg.codec_mode = ESP_CODEC_DEV_WORK_MODE_DAC;
+    esCfg.master_mode = false;
+    esCfg.pa_pin = PIN_PA_EN;
+    esCfg.pa_reverted = false;
+    codecIf = ctrlIf ? es8388_codec_new(&esCfg) : nullptr;
+    if (codecIf != nullptr) {
+      if (attempt > 1) ESP_LOGW(TAG, "ES8388 came up on attempt %d", attempt);
+      break;
+    }
+
+    ESP_LOGW(TAG, "ES8388 init attempt %d failed", attempt);
+    if (ctrlIf) audio_codec_delete_ctrl_if(ctrlIf);
+    ctrlIf = nullptr;
+    i2c_del_master_bus(bus);
+    vTaskDelay(pdMS_TO_TICKS(50));
+  }
+  if (dataIf == nullptr || codecIf == nullptr) {
     ESP_LOGE(TAG, "ES8388 interface init failed");
     return false;
   }
@@ -207,7 +209,7 @@ bool audioOutputInit() {
   }
 
   s_volume = std::clamp(globalSettings.volume, 0, 100);
-  audioOutputSetEq(globalSettings.bass, globalSettings.treble);
+  dspApplySettings();
   return openCodec(DEFAULT_SAMPLE_RATE);
 }
 
@@ -222,19 +224,16 @@ void audioOutputWrite(const int16_t* stereo, size_t frames, uint32_t sampleRate)
   if (s_codec == nullptr || frames == 0) return;
   if (sampleRate != s_sampleRate && !openCodec(sampleRate)) return;
 
-  bool eqOn = s_eqEnabled;
-  float lowGain = s_gainLow;
-  float highGain = s_gainHigh;
-
   while (frames > 0) {
     size_t n = std::min(frames, SCRATCH_FRAMES);
-    if (eqOn) {
-      for (size_t i = 0; i < n; i++) {
-        s_scratch[i * 2] = eqSample(s_eq[0], stereo[i * 2], lowGain, highGain);
-        s_scratch[i * 2 + 1] = eqSample(s_eq[1], stereo[i * 2 + 1], lowGain, highGain);
-      }
-    } else {
-      memcpy(s_scratch, stereo, n * 2 * sizeof(int16_t));
+    memcpy(s_scratch, stereo, n * 2 * sizeof(int16_t));
+    int64_t t0 = esp_timer_get_time();
+    dspProcess(s_scratch, n, sampleRate);
+    s_dspUs += esp_timer_get_time() - t0;
+    s_audioUs += (int64_t)n * 1000000 / sampleRate;
+    if (s_audioUs >= 60LL * 1000000) {
+      ESP_LOGI(TAG, "DSP load %.1f %% of real time", 100.0 * (double)s_dspUs / (double)s_audioUs);
+      s_dspUs = s_audioUs = 0;
     }
     esp_codec_dev_write(s_codec, s_scratch, (int)(n * 2 * sizeof(int16_t)));
     stereo += n * 2;

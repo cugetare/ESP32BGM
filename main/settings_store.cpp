@@ -82,6 +82,11 @@ void settingsLoadAll() {
     globalSettings.volume = std::clamp(readInt(h, "volume", 50), 0, 100);
     globalSettings.bass = std::clamp(readInt(h, "bass", 0), -10, 10);
     globalSettings.treble = std::clamp(readInt(h, "treble", 0), -10, 10);
+    soundSettings.mono = readInt(h, "mono", 0) != 0;
+    soundSettings.enhancer = std::clamp(readInt(h, "enh", 0), 0, 100);
+    soundSettings.protectHz = std::clamp(readInt(h, "hpf", 80), 0, 400);
+    soundSettings.notchHz = std::clamp(readInt(h, "notch_hz", 400), 100, 2000);
+    soundSettings.notchDepthDb = std::clamp(readInt(h, "notch_db", 0), 0, 12);
     currentStation = readInt(h, "station", 0);
     currentSDTrack = readInt(h, "sd_track", 0);
     wifiSettings.ssid = readString(h, "wifi_ssid");
@@ -95,7 +100,12 @@ void settingsSaveGlobal() {
   writeInts({ { "mode", (int)globalSettings.selectedMode },
               { "volume", globalSettings.volume },
               { "bass", globalSettings.bass },
-              { "treble", globalSettings.treble } });
+              { "treble", globalSettings.treble },
+              { "mono", soundSettings.mono ? 1 : 0 },
+              { "enh", soundSettings.enhancer },
+              { "hpf", soundSettings.protectHz },
+              { "notch_hz", soundSettings.notchHz },
+              { "notch_db", soundSettings.notchDepthDb } });
 }
 
 void settingsSaveRadio() {

@@ -90,16 +90,29 @@ void stopDecodedStream() {
 void playbackSetVolume(int value) {
   globalSettings.volume = std::clamp(value, 0, 100);
   audioOutputSetVolume(globalSettings.volume);
+  dspApplySettings();  // the enhancer's depth follows the volume
 }
 
 void playbackSetBass(int value) {
   globalSettings.bass = std::clamp(value, -10, 10);
-  audioOutputSetEq(globalSettings.bass, globalSettings.treble);
+  dspApplySettings();
 }
 
 void playbackSetTreble(int value) {
   globalSettings.treble = std::clamp(value, -10, 10);
-  audioOutputSetEq(globalSettings.bass, globalSettings.treble);
+  dspApplySettings();
+}
+
+// key: mono | enh | hpf | nhz | ndb
+bool playbackSetSound(const std::string& key, int value) {
+  if (key == "mono") soundSettings.mono = value != 0;
+  else if (key == "enh") soundSettings.enhancer = std::clamp(value, 0, 100);
+  else if (key == "hpf") soundSettings.protectHz = value <= 0 ? 0 : std::clamp(value, 40, 400);
+  else if (key == "nhz") soundSettings.notchHz = std::clamp(value, 100, 2000);
+  else if (key == "ndb") soundSettings.notchDepthDb = std::clamp(value, 0, 12);
+  else return false;
+  dspApplySettings();
+  return true;
 }
 
 bool mimeIsPlaylist(const std::string& mime) {

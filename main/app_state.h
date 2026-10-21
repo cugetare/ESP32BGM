@@ -70,6 +70,15 @@ struct GlobalSettings {
   int treble;
 };
 
+// Sound processing for the exciter (see audio_dsp.cpp).
+struct SoundSettings {
+  bool mono;          // equal-power downmix to both channels
+  int  enhancer;      // 0 = off, 1..100 (Warm / Full / Punch)
+  int  protectHz;     // exciter high-pass, 0 = off, 40..400
+  int  notchHz;       // resonance notch centre, 100..2000
+  int  notchDepthDb;  // resonance cut, 0 = off, 1..12
+};
+
 struct WifiSettings {
   std::string ssid;
   std::string password;
@@ -110,6 +119,7 @@ extern int currentStation;
 extern RuntimeStatus  runtimeStatus;
 extern GlobalSettings globalSettings;
 extern WifiSettings   wifiSettings;
+extern SoundSettings  soundSettings;
 
 extern EspAudioDecoder audioDecoder;
 extern int audioTaskCore;
@@ -121,10 +131,13 @@ uint32_t millisNow();
 //  FUNCTION DECLARATIONS
 // ============================================================
 
+// --- audio_dsp.cpp ---
+void dspApplySettings();
+void dspProcess(int16_t* stereo, size_t frames, uint32_t sampleRate);
+
 // --- audio_output.cpp ---
 bool audioOutputInit();
 void audioOutputSetVolume(int volume);
-void audioOutputSetEq(int bass, int treble);
 void audioOutputWrite(const int16_t* stereo, size_t frames, uint32_t sampleRate);
 void audioOutputSilence();
 
@@ -137,6 +150,7 @@ void stopDecodedStream();
 void playbackSetVolume(int value);
 void playbackSetBass(int value);
 void playbackSetTreble(int value);
+bool playbackSetSound(const std::string& key, int value);
 CodecHint codecHintFromPath(const std::string& path);
 CodecHint codecHintFromMime(const std::string& mime);
 bool mimeIsPlaylist(const std::string& mime);

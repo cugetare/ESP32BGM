@@ -32,7 +32,9 @@ card and is controlled from a built-in web page.
   | OGG Vorbis / Opus | `.ogg`, `.oga`, `.opus` | `audio/ogg`, `audio/opus` |
   | WAV (PCM / ADPCM) | `.wav` | `audio/wav` |
 
-- Hardware volume on the ES8388, plus a bass/treble 3-band EQ.
+- Hardware volume on the ES8388, plus a sound chain tuned for an **exciter**:
+  mono switch, bass/treble, a “wide & deep” sound enhancer, an adjustable
+  exciter-protection high-pass and a resonance notch (see [Sound](#sound)).
 - Web UI: the main player, a station manager, SD card info and a diagnostics
   page. The pages are built into the firmware, so there is no filesystem upload.
 - Wi-Fi setup through a captive portal. When no Wi-Fi is configured, or the
@@ -72,7 +74,7 @@ A 3D-printable enclosure (STL + FreeCAD) is in [`Docs/housing`](Docs/housing).
                                                     EspAudioDecoder (esp_audio_codec)
                                                                                      │ PCM 16-bit stereo
                                                                                      ▼
-                                              3-band EQ ──► esp_codec_dev ──► ES8388 / I2S
+                                    sound chain (audio_dsp) ──► esp_codec_dev ──► ES8388 / I2S
                                          (the codec is reopened when the source sample rate changes)
 ```
 
@@ -81,7 +83,8 @@ A 3D-printable enclosure (STL + FreeCAD) is in [`Docs/housing`](Docs/housing).
 | `main.cpp` | Constants, global state, `app_main()` |
 | `app_state.h` | Shared types and every cross-module declaration |
 | `audio_decoder.cpp/.h` | `EspAudioDecoder`, a wrapper around the Espressif simple decoder |
-| `audio_output.cpp` | I2C + I2S + ES8388 through `esp_codec_dev`, the EQ, volume, sample-rate changes |
+| `audio_output.cpp` | I2C + I2S + ES8388 through `esp_codec_dev`, volume, sample-rate changes, I2C recovery |
+| `audio_dsp.cpp` | Sound chain: mono, tone, enhancer, width, protection, notch, limiter |
 | `audio_task.cpp` | Audio task, the state lock (a recursive mutex), starting/stopping streams, codec detection |
 | `mode_manager.cpp` | Switching modes, play / pause / stop / select |
 | `source_radio.cpp` | HTTP(S) stream sessions, playlist following, pre-buffering, recovery |
@@ -114,6 +117,30 @@ Dependencies come from the ESP Component Registry (`main/idf_component.yml`):
   as a stream. Re-mux with `ffmpeg -i in.m4a -c copy -movflags +faststart out.m4a`
   if needed.
 - HLS (`.m3u8` with `#EXT-X-` segments) is not supported.
+
+## Sound
+
+The board outputs stereo; the chain below runs on every frame before the
+ES8388, in this order. All controls are in the **Sound** section of the main
+page and are saved with **Save as Default**.
+
+| Stage | Control | What it does |
+|---|---|---|
+| Mono | checkbox, off by default | Equal-power downmix (L+R)/√2 to both channels, for a single exciter |
+| Headroom | automatic | Attenuates the input by the largest active boost so loud masters don't clip (the volume is applied after the chain, in the codec) |
+| Bass / Treble | −10…+10 | Biquad shelves at 120 Hz / 6 kHz, ±12 dB (from Basmio) |
+| Sound enhancer | 0 = off, 1–40 Warm, 41–75 Full, 76–100 Punch | From Basmio. **Deep**: psychoacoustic bass (harmonics of the low band, above 78 Hz) plus a 175 Hz fullness shelf (up to +11.8 dB) and a 4.8 kHz presence shelf (up to +4 dB); this part fades out between 45 % and 72 % volume, like loudness compensation. **Wide**: mid/side side boost up to +50 %, stereo only, independent of volume |
+| Exciter protection | 0 = off, 40–400 Hz (default 80 Hz) | 4th-order Butterworth high-pass (−24 dB/octave), placed after the enhancer so nothing it adds reaches the exciter below the cut-off |
+| Resonance notch | 100–2000 Hz, 0 = off … −12 dB | Narrow peaking cut (Q 2.5) to take the exciter or panel resonance down |
+| Limiter | automatic | Soft knee above −0.8 dBFS |
+
+Tuning an exciter: start with the protection at or a little above the
+exciter's rated low limit (often its resonance, F<sub>s</sub>). Then sweep the
+notch frequency at −6 dB while music plays and leave it where the boominess or
+rattle drops. Add the enhancer last.
+
+With everything on, the chain uses about 8 % of real time on one core
+(measured on the board; logged once a minute as `audio_out: DSP load`).
 
 ## Building & flashing
 
@@ -247,6 +274,7 @@ tracks are indexed.
 | `/selectitem`, `/setstation` | GET/POST | `i` (or `s`) = item index |
 | `/setvolume` | GET/POST | `v` = 0–100 |
 | `/setbass`, `/settreble` | GET/POST | `v` = −10…10 |
+| `/setsound` | GET/POST | `k` = `mono` (0/1), `enh` (0–100), `hpf` (0 or 40–400 Hz), `nhz` (100–2000 Hz), `ndb` (0–12 dB cut); `v` = value |
 | `/savedefaults` | GET/POST | Saves the current settings |
 | `/refreshlibrary` | POST | Rescans the SD card / reloads stations |
 | `/getstations` | GET | Station list (JSON) |
@@ -288,6 +316,10 @@ Any other path returns the main page, which is what captive-portal checks expect
 - Settings written by the Arduino firmware use the same NVS keys, but the larger
   NVS partition means they may not survive the switch. Plan to re-enter Wi-Fi
   and stations once.
+- After a soft reset (OTA, reboot) the first ES8388 init usually fails with
+  an I2C NACK and the second succeeds. The firmware recovers the bus and
+  retries automatically, so a few `E (…) I2C_If` / `ES8388: Fail to open`
+  lines at boot followed by `came up on attempt 2` are expected.
 - Tested on hardware: radio (AAC and MP3), Wi-Fi setup, SD card (SDHC 64 GB,
   555 tracks across sub-folders, UTF-8 names, mono and stereo MP3 with large
   ID3 tags, auto-advance to the next track), FLAC and OGG, OTA (upload, reboot into the other slot, mark valid,

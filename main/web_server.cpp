@@ -262,6 +262,11 @@ static esp_err_t handleRoot(httpd_req_t* req) {
   replaceToken(html, "{{CURRENT_VOLUME}}", std::to_string(globalSettings.volume));
   replaceToken(html, "{{CURRENT_BASS}}", std::to_string(globalSettings.bass));
   replaceToken(html, "{{CURRENT_TREBLE}}", std::to_string(globalSettings.treble));
+  replaceToken(html, "{{MONO_CHECKED}}", soundSettings.mono ? "checked" : "");
+  replaceToken(html, "{{ENH}}", std::to_string(soundSettings.enhancer));
+  replaceToken(html, "{{HPF}}", std::to_string(soundSettings.protectHz));
+  replaceToken(html, "{{NHZ}}", std::to_string(soundSettings.notchHz));
+  replaceToken(html, "{{NDB}}", std::to_string(soundSettings.notchDepthDb));
   audioStateUnlock();
   return sendHtml(req, html);
 }
@@ -365,6 +370,14 @@ static esp_err_t handleSetLevel(httpd_req_t* req, void (*setter)(int)) {
 static esp_err_t handleSetVolume(httpd_req_t* req) { return handleSetLevel(req, playbackSetVolume); }
 static esp_err_t handleSetBass(httpd_req_t* req) { return handleSetLevel(req, playbackSetBass); }
 static esp_err_t handleSetTreble(httpd_req_t* req) { return handleSetLevel(req, playbackSetTreble); }
+
+static esp_err_t handleSetSound(httpd_req_t* req) {
+  RequestArgs args = readArgs(req);
+  std::string key;
+  if (!args.get("k", key) || !args.has("v")) return sendText(req, 400, "Missing k or v");
+  if (!playbackSetSound(key, args.getInt("v"))) return sendText(req, 400, "Unknown key");
+  return sendText(req, 200, "OK");
+}
 
 static esp_err_t handleSaveDefaults(httpd_req_t* req) {
   if (!audioStateLock(500)) return sendText(req, 503, "Audio engine busy");
@@ -561,6 +574,7 @@ static const Route ROUTES[] = {
   { "/setvolume",      handleSetVolume,      true,  true  },
   { "/setbass",        handleSetBass,        true,  true  },
   { "/settreble",      handleSetTreble,      true,  true  },
+  { "/setsound",       handleSetSound,       true,  true  },
   { "/savedefaults",   handleSaveDefaults,   true,  true  },
   { "/manage",         handleManage,         true,  true  },
   { "/getstations",    handleGetStations,    true,  true  },
