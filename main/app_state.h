@@ -210,5 +210,21 @@ bool sdOpenSelected();
 bool sdLoop();
 bool sdCardInfo(std::string& type, uint64_t& sizeBytes);
 
+// --- log_stream.cpp ---
+void logStreamInit();
+void logStreamStartTcp();
+uint32_t logStreamPosition();
+uint32_t logStreamOldest();
+size_t logStreamRead(uint32_t& pos, char* out, size_t maxLen);
+
+// --- ota_update.cpp ---
+void otaBootCheck();
+void otaMarkHealthy();
+std::string otaRunningInfo();
+bool otaBegin(size_t imageSize, std::string& err);
+bool otaWrite(const void* data, size_t len, std::string& err);
+bool otaFinish(std::string& err);
+void otaAbort();
+
 // --- web_server.cpp ---
-void startWebServer();
+bool startWebServer();

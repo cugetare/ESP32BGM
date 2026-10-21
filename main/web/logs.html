@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Logs</title>
+  <style>
+    body{font-family:Arial,sans-serif;margin:0;padding:12px;background:#1e1e1e;color:#ddd}
+    .bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+    .bar a,.bar button{color:white;background:#0066cc;border:none;border-radius:4px;padding:8px 12px;text-decoration:none;font-size:14px;cursor:pointer}
+    .bar label{font-size:14px}
+    .hint{font-size:13px;color:#999}
+    pre{margin:0;padding:10px;background:#111;border-radius:6px;height:calc(100vh - 90px);overflow:auto;
+        font:12px/1.4 Consolas,Menlo,monospace;white-space:pre-wrap;word-break:break-all}
+    .E{color:#ff6b6b}.W{color:#ffd166}
+  </style>
+</head>
+<body>
+<div class="bar">
+  <a href="/">Back</a>
+  <button onclick="clearView()">Clear view</button>
+  <label><input type="checkbox" id="follow" checked> Follow</label>
+  <label><input type="checkbox" id="paused"> Pause</label>
+  <span class="hint">Live stream: <code>nc {{DEVICE_IP}} 2323</code></span>
+</div>
+<pre id="log"></pre>
+<script>
+  let pos=null;
+  const out=document.getElementById('log');
+  const MAX_LINES=3000;
+  function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;');}
+  function addLines(text){
+    const html=text.replace(/\x1b\[[0-9;]*m/g,'').split('\n').map(l=>{
+      const c=l.startsWith('E (')?'E':l.startsWith('W (')?'W':'';
+      return c?'<span class="'+c+'">'+esc(l)+'</span>':esc(l);
+    }).join('\n');
+    out.insertAdjacentHTML('beforeend',html);
+    while(out.childNodes.length>MAX_LINES*2)out.removeChild(out.firstChild);
+    if(document.getElementById('follow').checked)out.scrollTop=out.scrollHeight;
+  }
+  function clearView(){out.innerHTML='';}
+  async function poll(){
+    if(!document.getElementById('paused').checked){
+      try{
+        const r=await fetch('/logtail'+(pos===null?'':'?from='+pos));
+        const next=r.headers.get('X-Log-Pos');
+        const t=await r.text();
+        if(next!==null)pos=next;
+        if(t.length)addLines(t);
+      }catch(e){}
+    }
+    setTimeout(poll,1000);
+  }
+  poll();
+</script>
+</body>
+</html>

@@ -40,6 +40,10 @@ card and is controlled from a built-in web page.
   `radiosetup`).
 - Settings are kept across reboots in NVS: mode, volume, EQ, last station,
   last track and the station list.
+- **OTA firmware updates** from the web UI (`/update`), with automatic rollback
+  if the new image doesn't come up.
+- **Remote logs**: every log line is kept in a 32 KB ring buffer, viewable
+  live at `/logs` or over TCP with `nc <device-ip> 2323`.
 
 ## Hardware
 
@@ -85,7 +89,9 @@ A 3D-printable enclosure (STL + FreeCAD) is in [`Docs/housing`](Docs/housing).
 | `network_manager.cpp` | Wi-Fi STA with auto-reconnect, the setup AP |
 | `captive_dns.cpp` | DNS server that sends every hostname to the setup AP |
 | `settings_store.cpp` | NVS settings (namespace `radio`) and the stations JSON |
-| `web_server.cpp` | `esp_http_server` routes and HTML templating |
+| `web_server.cpp` | `esp_http_server` routes and HTML templating, the OTA upload handler |
+| `ota_update.cpp` | OTA slot writing, boot check and rollback timer |
+| `log_stream.cpp` | `esp_log` hook, PSRAM ring buffer, TCP log server |
 | `web/*.html` | Web UI templates (embedded with `EMBED_TXTFILES`) |
 
 Dependencies come from the ESP Component Registry (`main/idf_component.yml`):
@@ -126,8 +132,55 @@ idf.py -p COM5 flash monitor
 
 Replace `COM5` with your board's serial port. The first build downloads the
 managed components. `sdkconfig.defaults` turns on PSRAM, the custom partition
-table (`partitions.csv`: 64 KB NVS, ~3.9 MB app), HTTPS with the certificate
-bundle, FATFS long file names and the Wi-Fi/LWIP buffer sizes for streaming.
+table, OTA rollback, HTTPS with the certificate bundle, FATFS long file names
+and the Wi-Fi/LWIP buffer sizes for streaming. It also switches off the
+`esp_audio_codec` formats BGM never plays (AMR, G.711, G.722, LC3, SBC, ALAC,
+MPEG-TS, all encoders), which takes the app from 1.83 MB to 1.64 MB.
+
+| Partition | Offset | Size |
+|---|---|---|
+| `nvs` | 0x9000 | 64 KB |
+| `otadata` | 0x19000 | 8 KB |
+| `phy_init` | 0x1B000 | 4 KB |
+| `ota_0` | 0x20000 | 1920 KB |
+| `ota_1` | 0x200000 | 1920 KB |
+
+If you change `sdkconfig.defaults`, delete `sdkconfig` before building so the
+new defaults are applied.
+
+## Firmware updates (OTA)
+
+1. Build with `idf.py build`.
+2. Open `http://<device-ip>/update`. The page shows the running version and slot.
+3. Pick `build/ESP32BGM.bin` and press **Upload & install**. Playback stops,
+   the image is written to the other slot and verified, and the device reboots.
+
+The upload also works from the command line:
+
+```bash
+curl -X POST -H "Content-Type: application/octet-stream" --data-binary @build/ESP32BGM.bin http://192.168.2.119/update
+```
+
+The new image boots in “pending verify” state. It is marked valid once the web
+server is running (so you can always reach it for the next update). If it
+crashes before that, or doesn't get there within 120 s, the bootloader goes
+back to the previous slot. A file that isn't an ESP32 image is rejected right
+away and playback resumes. Bump `VERSION` for each release so `/update` shows
+what is running.
+
+> There is no authentication on `/update` (or anywhere in the web UI): anyone
+> on the same network can flash the device.
+
+## Logs
+
+- **Browser**: `http://<device-ip>/logs` polls once a second and highlights
+  warnings and errors. It has Follow and Pause switches.
+- **TCP**: `nc <device-ip> 2323`, or PuTTY in “Raw” mode on port 2323. You get
+  the buffered history first, then live lines. Up to 2 clients at a time.
+- **Serial** keeps working as before (`idf.py monitor`).
+
+The buffer holds the last 32 KB of output, including the whole boot (the hook is
+installed first thing in `app_main`).
 
 ## Usage
 
@@ -172,6 +225,10 @@ tracks are indexed.
 | `/sdinfo`, `/diagnostics` | GET | Status pages |
 | `/savewifi` | POST | `ssid`, `password` |
 | `/setup`, `/resetwifi`, `/reboot` | GET | Wi-Fi and system |
+| `/update` | GET | Firmware page (version, slots) |
+| `/update` | POST | Raw `.bin` body, `application/octet-stream` |
+| `/logs` | GET | Live log page |
+| `/logtail` | GET | Log text since `from` (all of it without); next position in the `X-Log-Pos` header |
 
 Any other path returns the main page, which is what captive-portal checks expect.
 
@@ -189,6 +246,8 @@ Any other path returns the main page, which is what captive-portal checks expect
 | Wi-Fi drop | Reconnected only when the radio recovery ran | Reconnects on its own |
 | No credentials in SD mode | No web UI | Setup AP starts |
 | Static internal RAM | ~94 KB | ~37 KB |
+| Updates | USB only | OTA from the web UI, with rollback |
+| Logs | Serial only | Serial + `/logs` + TCP 2323 |
 
 ### Not yet at feature parity
 
@@ -199,11 +258,15 @@ Any other path returns the main page, which is what captive-portal checks expect
 - Settings written by the Arduino firmware use the same NVS keys, but the larger
   NVS partition means they may not survive the switch. Plan to re-enter Wi-Fi
   and stations once.
-- The firmware is build-tested only; it has not been run on hardware yet.
+- Tested on hardware: radio (AAC and MP3), Wi-Fi setup, OTA (upload, reboot
+  into the other slot, mark valid, rejection of a non-firmware file), `/logs` and
+  TCP logs. Not yet tested on hardware: SD playback, FLAC/OGG/M4A, HTTPS
+  streams, playlist URLs.
 
 ## Roadmap
 
-- [ ] Test on hardware (ES8388 init, SD 1-bit, HTTPS streams).
+- [ ] Test on hardware: SD 1-bit, FLAC/OGG/M4A, HTTPS streams.
+- [ ] Authentication for the web UI and `/update`.
 - [ ] FTP library source.
 - [ ] MQTT bridge.
 - [ ] Hardware keys (GPIO 36/13/19/23/18/5) for play/pause/next/volume.

@@ -8,6 +8,9 @@
 #include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
+#include <algorithm>
+#include <memory>
+#include <new>
 
 #include "esp_http_server.h"
 #include "esp_log.h"
@@ -21,6 +24,8 @@ extern const char setup_html_start[] asm("_binary_setup_html_start");
 extern const char manage_html_start[] asm("_binary_manage_html_start");
 extern const char sdinfo_html_start[] asm("_binary_sdinfo_html_start");
 extern const char diagnostics_html_start[] asm("_binary_diagnostics_html_start");
+extern const char update_html_start[] asm("_binary_update_html_start");
+extern const char logs_html_start[] asm("_binary_logs_html_start");
 
 static const size_t MAX_BODY_BYTES = 2048;
 static int s_webCore = -1;
@@ -457,6 +462,72 @@ static esp_err_t handleDiagnostics(httpd_req_t* req) {
   return sendHtml(req, html);
 }
 
+static esp_err_t handleUpdatePage(httpd_req_t* req) {
+  std::string html = update_html_start;
+  replaceToken(html, "{{FW_INFO}}", otaRunningInfo());
+  return sendHtml(req, html);
+}
+
+// A failed upload leaves the running firmware untouched: resume playback.
+static esp_err_t failUpload(httpd_req_t* req, int code, const std::string& err) {
+  otaAbort();
+  ESP_LOGW(TAG, "OTA upload failed: %s", err.c_str());
+  modeSwitchTo(runtimeStatus.selectedMode);  // full restart: SD mode was unmounted by the stop
+  return sendText(req, code, err);
+}
+
+// Raw firmware image in the request body (application/octet-stream).
+static esp_err_t handleUpdateUpload(httpd_req_t* req) {
+  std::string err;
+  if (req->content_len == 0) return sendText(req, 400, "Empty upload");
+
+  playbackStop();  // flash writes stall the cache; don't fight the decoder for it
+  if (!otaBegin(req->content_len, err)) return failUpload(req, 400, err);
+
+  const size_t CHUNK = 4096;
+  std::unique_ptr<char[]> buf(new (std::nothrow) char[CHUNK]);
+  if (!buf) return failUpload(req, 500, "Out of memory");
+
+  size_t remaining = req->content_len;
+  int timeouts = 0;
+  while (remaining > 0) {
+    int r = httpd_req_recv(req, buf.get(), std::min(remaining, CHUNK));
+    if (r == HTTPD_SOCK_ERR_TIMEOUT && ++timeouts < 5) continue;
+    if (r <= 0) return failUpload(req, 500, "Upload interrupted");
+    timeouts = 0;
+    if (!otaWrite(buf.get(), r, err)) return failUpload(req, 400, err);
+    remaining -= r;
+  }
+
+  if (!otaFinish(err)) return failUpload(req, 400, err);
+  return sendText(req, 200, "OK, rebooting");
+}
+
+static esp_err_t handleLogsPage(httpd_req_t* req) {
+  std::string html = logs_html_start;
+  std::string ip = networkStaIp();
+  replaceToken(html, "{{DEVICE_IP}}", ip.empty() ? "&lt;device-ip&gt;" : ip);
+  return sendHtml(req, html);
+}
+
+// Log text since ?from=<pos> (whole buffer without it); next position in X-Log-Pos.
+static esp_err_t handleLogTail(httpd_req_t* req) {
+  RequestArgs args = readArgs(req);
+  std::string from;
+  uint32_t pos = args.get("from", from) ? (uint32_t)strtoul(from.c_str(), nullptr, 10)
+                                        : logStreamOldest();
+  std::string body;
+  char buf[2048];
+  size_t n;
+  while (body.size() < 32 * 1024 && (n = logStreamRead(pos, buf, sizeof(buf))) > 0) {
+    body.append(buf, n);
+  }
+  char posHeader[16];
+  snprintf(posHeader, sizeof(posHeader), "%lu", (unsigned long)pos);
+  httpd_resp_set_hdr(req, "X-Log-Pos", posHeader);
+  return send(req, 200, "text/plain; charset=utf-8", body);
+}
+
 // ============================================================
 //  SERVER
 // ============================================================
@@ -489,9 +560,11 @@ static const Route ROUTES[] = {
   { "/deletestation",  handleDeleteStation,  true,  true  },
   { "/sdinfo",         handleSDInfo,         true,  true  },
   { "/diagnostics",    handleDiagnostics,    true,  true  },
+  { "/logs",           handleLogsPage,       true,  false },
+  { "/logtail",        handleLogTail,        true,  false },
 };
 
-void startWebServer() {
+bool startWebServer() {
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
   config.stack_size = 10240;
   config.max_uri_handlers = 48;
@@ -502,7 +575,7 @@ void startWebServer() {
   httpd_handle_t server = nullptr;
   if (httpd_start(&server, &config) != ESP_OK) {
     ESP_LOGE(TAG, "HTTP server start failed");
-    return;
+    return false;
   }
   s_webCore = config.core_id;
 
@@ -517,6 +590,19 @@ void startWebServer() {
       httpd_register_uri_handler(server, &uri);
     }
   }
+  // /update shares a URI between the page (GET) and the upload (POST).
+  httpd_uri_t updatePage = {};
+  updatePage.uri = "/update";
+  updatePage.method = HTTP_GET;
+  updatePage.handler = handleUpdatePage;
+  httpd_register_uri_handler(server, &updatePage);
+  httpd_uri_t updateUpload = {};
+  updateUpload.uri = "/update";
+  updateUpload.method = HTTP_POST;
+  updateUpload.handler = handleUpdateUpload;
+  httpd_register_uri_handler(server, &updateUpload);
+
   httpd_register_err_handler(server, HTTPD_404_NOT_FOUND, handleNotFound);
   ESP_LOGI(TAG, "HTTP server started");
+  return true;
 }

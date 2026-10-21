@@ -57,9 +57,11 @@ uint32_t millisNow() {
 // ============================================================
 
 extern "C" void app_main(void) {
+  logStreamInit();  // first, so /logs and TCP clients see the whole boot
   ESP_LOGI(TAG, "ESP32BGM starting, PSRAM free: %u bytes",
            (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
 
+  otaBootCheck();
   settingsInit();
   settingsLoadAll();
 
@@ -69,8 +71,11 @@ extern "C" void app_main(void) {
 
   networkInit();
   networkBegin();
-  startWebServer();
+  bool webOk = startWebServer();
+  logStreamStartTcp();
 
   initAudioTask();
+  // Reachable for the next OTA: keep this image (cancels rollback).
+  if (webOk) otaMarkHealthy();
   modeBeginSelected();
 }
