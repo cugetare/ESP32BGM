@@ -260,7 +260,7 @@ Any other path returns the main page, which is what captive-portal checks expect
   and stations once.
 - Tested on hardware: radio (AAC and MP3), Wi-Fi setup, SD card (SDHC 64 GB,
   555 tracks across sub-folders, UTF-8 names, mono and stereo MP3 with large
-  ID3 tags, gapless auto-advance to the next track), FLAC and OGG, OTA (upload, reboot into the other slot, mark valid,
+  ID3 tags, auto-advance to the next track), FLAC and OGG, OTA (upload, reboot into the other slot, mark valid,
   rejection of a non-firmware file), `/logs` and TCP logs. Not yet tested on
   hardware: M4A, HTTPS streams, playlist URLs.
 
