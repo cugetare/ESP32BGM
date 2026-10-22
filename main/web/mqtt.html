@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Home Assistant (MQTT)</title>
+  <style>
+    body{font-family:Arial,sans-serif;max-width:500px;margin:20px auto;padding:20px;background:#f0f0f0}
+    .box{background:white;padding:24px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,.1)}
+    h1{color:#333;margin-top:0;font-size:24px}
+    label{display:block;margin-top:12px;color:#444;font-size:14px}
+    input[type=text],input[type=password],input[type=number]{width:100%;padding:10px;font-size:16px;border:1px solid #ddd;border-radius:5px;box-sizing:border-box}
+    .chk{display:flex;gap:8px;align-items:center;margin-top:12px}
+    .info{background:#e7f3ff;padding:12px;border-radius:5px;margin-bottom:12px;font-size:14px;line-height:1.5}
+    .hint{font-size:12px;color:#888}
+    button{width:100%;padding:13px;font-size:16px;color:white;border:none;border-radius:5px;cursor:pointer;margin-top:14px;background:#0066cc}
+    button.alt{background:#666}
+    code{background:#f4f4f4;padding:1px 4px;border-radius:3px}
+  </style>
+</head>
+<body>
+<div class="box">
+  <h1>Home Assistant (MQTT)</h1>
+  <div class="info">
+    Status: <strong>{{MQTT_STATUS}}</strong><br>
+    Device ID: <code>bgm_{{DEVICE_SUFFIX}}</code><br>
+    Topics: <code>{{BASE_TOPIC}}/…</code>
+  </div>
+  <form action="/savemqtt" method="POST">
+    <label class="chk"><input type="checkbox" name="enabled" value="1" {{MQTT_ENABLED}}> Enable MQTT</label>
+    <label>Broker host (e.g. Home Assistant IP)</label>
+    <input type="text" name="host" value="{{MQTT_HOST}}" placeholder="192.168.2.10">
+    <label>Port</label>
+    <input type="number" name="port" value="{{MQTT_PORT}}" min="1" max="65535">
+    <label>Username</label>
+    <input type="text" name="user" value="{{MQTT_USER}}" autocomplete="username">
+    <label>Password</label>
+    <input type="password" name="password" value="" placeholder="{{MQTT_PASS_HINT}}" autocomplete="current-password">
+    <div class="hint">Leave empty to keep the saved password.</div>
+    <label>Device name in Home Assistant</label>
+    <input type="text" name="name" value="{{MQTT_NAME}}" placeholder="ESP32BGM {{DEVICE_SUFFIX}}">
+    <button type="submit">Save &amp; connect</button>
+  </form>
+  <button class="alt" onclick="location.href='/'">Back</button>
+</div>
+</body>
+</html>

@@ -45,6 +45,7 @@ RuntimeStatus  runtimeStatus  = { PLAYBACK_RADIO_URL, STATE_STOPPED, NET_OFF, ""
 GlobalSettings globalSettings = { PLAYBACK_RADIO_URL, 50, 0, 0 };
 WifiSettings   wifiSettings;
 SoundSettings  soundSettings  = { false, 0, 80, 400, 0 };
+MqttSettings   mqttSettings   = { false, "", 1883, "", "", "" };
 
 EspAudioDecoder audioDecoder;
 int audioTaskCore = 0;
@@ -74,6 +75,8 @@ extern "C" void app_main(void) {
   networkBegin();
   bool webOk = startWebServer();
   logStreamStartTcp();
+  remoteInit();
+  mqttStart();
 
   initAudioTask();
   // Reachable for the next OTA: keep this image (cancels rollback).

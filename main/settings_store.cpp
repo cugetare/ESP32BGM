@@ -87,6 +87,12 @@ void settingsLoadAll() {
     soundSettings.protectHz = std::clamp(readInt(h, "hpf", 80), 0, 400);
     soundSettings.notchHz = std::clamp(readInt(h, "notch_hz", 400), 100, 2000);
     soundSettings.notchDepthDb = std::clamp(readInt(h, "notch_db", 0), 0, 12);
+    mqttSettings.enabled = readInt(h, "mqtt_en", 0) != 0;
+    mqttSettings.host = readString(h, "mqtt_host");
+    mqttSettings.port = std::clamp(readInt(h, "mqtt_port", 1883), 1, 65535);
+    mqttSettings.user = readString(h, "mqtt_user");
+    mqttSettings.password = readString(h, "mqtt_pass");
+    mqttSettings.name = readString(h, "mqtt_name");
     currentStation = readInt(h, "station", 0);
     currentSDTrack = readInt(h, "sd_track", 0);
     wifiSettings.ssid = readString(h, "wifi_ssid");
@@ -106,6 +112,19 @@ void settingsSaveGlobal() {
               { "hpf", soundSettings.protectHz },
               { "notch_hz", soundSettings.notchHz },
               { "notch_db", soundSettings.notchDepthDb } });
+}
+
+void settingsSaveMqtt() {
+  nvs_handle_t h;
+  if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h) != ESP_OK) return;
+  nvs_set_i32(h, "mqtt_en", mqttSettings.enabled ? 1 : 0);
+  nvs_set_i32(h, "mqtt_port", mqttSettings.port);
+  nvs_set_str(h, "mqtt_host", mqttSettings.host.c_str());
+  nvs_set_str(h, "mqtt_user", mqttSettings.user.c_str());
+  nvs_set_str(h, "mqtt_pass", mqttSettings.password.c_str());
+  nvs_set_str(h, "mqtt_name", mqttSettings.name.c_str());
+  nvs_commit(h);
+  nvs_close(h);
 }
 
 void settingsSaveRadio() {

@@ -79,6 +79,15 @@ struct SoundSettings {
   int  notchDepthDb;  // resonance cut, 0 = off, 1..12
 };
 
+struct MqttSettings {
+  bool        enabled;
+  std::string host;
+  int         port;
+  std::string user;
+  std::string password;
+  std::string name;  // device name shown in Home Assistant
+};
+
 struct WifiSettings {
   std::string ssid;
   std::string password;
@@ -120,6 +129,7 @@ extern RuntimeStatus  runtimeStatus;
 extern GlobalSettings globalSettings;
 extern WifiSettings   wifiSettings;
 extern SoundSettings  soundSettings;
+extern MqttSettings   mqttSettings;
 
 extern EspAudioDecoder audioDecoder;
 extern int audioTaskCore;
@@ -196,6 +206,7 @@ void settingsLoadAll();
 void settingsSaveGlobal();
 void settingsSaveRadio();
 void settingsSaveSd();
+void settingsSaveMqtt();
 void loadStations();
 void saveStations();
 
@@ -223,6 +234,19 @@ bool sdSelectTrack(int index);
 bool sdOpenSelected();
 bool sdLoop();
 bool sdCardInfo(std::string& type, uint64_t& sizeBytes);
+
+// --- remote_control.cpp ---
+void remoteInit();
+bool remoteCommand(const std::string& cmd);
+bool remoteSet(const std::string& key, const std::string& value);
+bool remoteRamping();
+
+// --- mqtt_bridge.cpp ---
+void mqttStart();
+void mqttStop();
+const char* mqttStatusText();
+std::string mqttBaseTopic();
+std::string mqttDeviceSuffix();
 
 // --- log_stream.cpp ---
 void logStreamInit();

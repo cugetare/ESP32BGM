@@ -26,6 +26,7 @@ extern const char sdinfo_html_start[] asm("_binary_sdinfo_html_start");
 extern const char diagnostics_html_start[] asm("_binary_diagnostics_html_start");
 extern const char update_html_start[] asm("_binary_update_html_start");
 extern const char logs_html_start[] asm("_binary_logs_html_start");
+extern const char mqtt_html_start[] asm("_binary_mqtt_html_start");
 
 static const size_t MAX_BODY_BYTES = 2048;
 static int s_webCore = -1;
@@ -379,6 +380,60 @@ static esp_err_t handleSetSound(httpd_req_t* req) {
   return sendText(req, 200, "OK");
 }
 
+static esp_err_t handleMqttPage(httpd_req_t* req) {
+  std::string html = mqtt_html_start;
+  replaceToken(html, "{{MQTT_STATUS}}", mqttStatusText());
+  replaceToken(html, "{{DEVICE_SUFFIX}}", mqttDeviceSuffix());
+  replaceToken(html, "{{BASE_TOPIC}}", htmlEscape(mqttBaseTopic()));
+  replaceToken(html, "{{MQTT_ENABLED}}", mqttSettings.enabled ? "checked" : "");
+  replaceToken(html, "{{MQTT_HOST}}", htmlEscape(mqttSettings.host));
+  replaceToken(html, "{{MQTT_PORT}}", std::to_string(mqttSettings.port));
+  replaceToken(html, "{{MQTT_USER}}", htmlEscape(mqttSettings.user));
+  replaceToken(html, "{{MQTT_PASS_HINT}}", mqttSettings.password.empty() ? "" : "(saved)");
+  replaceToken(html, "{{MQTT_NAME}}", htmlEscape(mqttSettings.name));
+  return sendHtml(req, html);
+}
+
+static esp_err_t handleSaveMqtt(httpd_req_t* req) {
+  RequestArgs args = readArgs(req);
+  std::string host, user, password, name;
+  args.get("host", host);
+  args.get("user", user);
+  args.get("password", password);
+  args.get("name", name);
+
+  mqttSettings.enabled = args.has("enabled");
+  mqttSettings.host = trim(host);
+  mqttSettings.port = std::clamp(args.getInt("port", 1883), 1, 65535);
+  mqttSettings.user = trim(user);
+  if (!password.empty()) mqttSettings.password = password;  // empty = keep
+  mqttSettings.name = trim(name);
+  settingsSaveMqtt();
+  mqttStart();
+
+  httpd_resp_set_status(req, "303 See Other");
+  httpd_resp_set_hdr(req, "Location", "/mqtt");
+  return httpd_resp_send(req, nullptr, 0);
+}
+
+// Same commands as MQTT <base>/cmd, e.g. /cmd?c=ramp_up
+static esp_err_t handleCmd(httpd_req_t* req) {
+  RequestArgs args = readArgs(req);
+  std::string c;
+  if (!args.get("c", c)) return sendText(req, 400, "Missing c");
+  if (!remoteCommand(c)) return sendText(req, 400, "Unknown command");
+  return sendText(req, 200, "OK");
+}
+
+// Same keys as MQTT <base>/set/<key>, e.g. /set?k=source&v=SD%20Card
+static esp_err_t handleSet(httpd_req_t* req) {
+  RequestArgs args = readArgs(req);
+  std::string k, v;
+  if (!args.get("k", k) || !args.get("v", v)) return sendText(req, 400, "Missing k or v");
+  if (!remoteSet(k, v)) return sendText(req, 400, "Unknown key");
+  return sendText(req, 200, "OK");
+}
+
 static esp_err_t handleSaveDefaults(httpd_req_t* req) {
   if (!audioStateLock(500)) return sendText(req, 503, "Audio engine busy");
   settingsSaveGlobal();
@@ -575,6 +630,10 @@ static const Route ROUTES[] = {
   { "/setbass",        handleSetBass,        true,  true  },
   { "/settreble",      handleSetTreble,      true,  true  },
   { "/setsound",       handleSetSound,       true,  true  },
+  { "/mqtt",           handleMqttPage,       true,  false },
+  { "/savemqtt",       handleSaveMqtt,       false, true  },
+  { "/cmd",            handleCmd,            true,  true  },
+  { "/set",            handleSet,            true,  true  },
   { "/savedefaults",   handleSaveDefaults,   true,  true  },
   { "/manage",         handleManage,         true,  true  },
   { "/getstations",    handleGetStations,    true,  true  },
@@ -587,10 +646,27 @@ static const Route ROUTES[] = {
   { "/favicon.ico",    handleFavicon,        true,  false },
 };
 
+static bool registerRoute(httpd_handle_t server, const char* path, httpd_method_t method,
+                          esp_err_t (*handler)(httpd_req_t*)) {
+  httpd_uri_t uri = {};
+  uri.uri = path;
+  uri.method = method;
+  uri.handler = handler;
+  esp_err_t ret = httpd_register_uri_handler(server, &uri);
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "route %s %s not registered (%s)", method == HTTP_GET ? "GET" : "POST", path,
+             esp_err_to_name(ret));
+    return false;
+  }
+  return true;
+}
+
+// Returns false if anything failed to register: the caller then does not
+// mark a fresh OTA image valid, so the bootloader rolls it back.
 bool startWebServer() {
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
   config.stack_size = 10240;
-  config.max_uri_handlers = 48;
+  config.max_uri_handlers = 96;
   config.lru_purge_enable = true;
   config.core_id = 0;
   config.task_priority = 4;
@@ -602,30 +678,17 @@ bool startWebServer() {
   }
   s_webCore = config.core_id;
 
+  // OTA first: whatever else goes wrong, the device must stay updatable.
+  bool ok = registerRoute(server, "/update", HTTP_GET, handleUpdatePage);
+  ok = registerRoute(server, "/update", HTTP_POST, handleUpdateUpload) && ok;
+
   for (const Route& r : ROUTES) {
-    for (int m = 0; m < 2; ++m) {
-      bool enabled = (m == 0) ? r.get : r.post;
-      if (!enabled) continue;
-      httpd_uri_t uri = {};
-      uri.uri = r.uri;
-      uri.method = (m == 0) ? HTTP_GET : HTTP_POST;
-      uri.handler = r.handler;
-      httpd_register_uri_handler(server, &uri);
-    }
+    if (r.get) ok = registerRoute(server, r.uri, HTTP_GET, r.handler) && ok;
+    if (r.post) ok = registerRoute(server, r.uri, HTTP_POST, r.handler) && ok;
   }
-  // /update shares a URI between the page (GET) and the upload (POST).
-  httpd_uri_t updatePage = {};
-  updatePage.uri = "/update";
-  updatePage.method = HTTP_GET;
-  updatePage.handler = handleUpdatePage;
-  httpd_register_uri_handler(server, &updatePage);
-  httpd_uri_t updateUpload = {};
-  updateUpload.uri = "/update";
-  updateUpload.method = HTTP_POST;
-  updateUpload.handler = handleUpdateUpload;
-  httpd_register_uri_handler(server, &updateUpload);
 
   httpd_register_err_handler(server, HTTPD_404_NOT_FOUND, handleNotFound);
-  ESP_LOGI(TAG, "HTTP server started");
-  return true;
+  if (ok) ESP_LOGI(TAG, "HTTP server started");
+  else ESP_LOGE(TAG, "HTTP server started with missing routes");
+  return ok;
 }
