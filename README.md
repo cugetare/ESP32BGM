@@ -41,7 +41,11 @@ card and is controlled from a built-in web page.
   connection fails, the device opens the `ESP32-Radio-Setup` AP (password
   `radiosetup`).
 - Settings are kept across reboots in NVS: mode, volume, EQ, last station,
-  last track and the station list.
+  last track and the station list. The volume saves itself 5 s after the
+  last change (one write per ramp or run of clicks), so it survives a power cut.
+- **Home Assistant over MQTT** with discovery: each board shows up as one
+  device (volume, source, station, play, next/previous, now playing, sound
+  settings), plus a held-button volume ramp done on the board.
 - **OTA firmware updates** from the web UI (`/update`), with automatic rollback
   if the new image doesn't come up. Only images signed with your RSA-3072 key
   are accepted.
@@ -94,6 +98,8 @@ A 3D-printable enclosure (STL + FreeCAD) is in [`Docs/housing`](Docs/housing).
 | `captive_dns.cpp` | DNS server that sends every hostname to the setup AP |
 | `settings_store.cpp` | NVS settings (namespace `radio`) and the stations JSON |
 | `web_server.cpp` | `esp_http_server` routes and HTML templating, the OTA upload handler |
+| `remote_control.cpp` | Command set shared by MQTT and HTTP: volume step and ramp, next/previous, source, play/pause |
+| `mqtt_bridge.cpp` | MQTT client, Home Assistant discovery, retained JSON state, availability |
 | `ota_update.cpp` | OTA slot writing, boot check and rollback timer |
 | `log_stream.cpp` | `esp_log` hook, PSRAM ring buffer, TCP log server |
 | `web/*.html` | Web UI templates (embedded with `EMBED_TXTFILES`) |
@@ -247,6 +253,46 @@ The web UI itself has no password: the device is meant for a trusted home
 network. Anyone on that network can change settings or reboot it, but can't
 install firmware without the key.
 
+## Home Assistant (MQTT)
+
+Open `http://<device-ip>/mqtt`, enable MQTT and enter the broker (for the
+Mosquitto app in Home Assistant: the HA IP, port 1883, and an HA user), plus
+the device name to show in HA. Pick the name before you build automations:
+the entity IDs are derived from it the first time the device appears.
+
+Each board uses its own topics, `esp32bgm/<last 6 MAC hex digits>/…`, and
+appears as device `bgm_<same digits>`:
+
+| Entity | Type | MQTT |
+|---|---|---|
+| Volume | number 0–100 | `…/set/volume` |
+| Source | select Radio / SD Card | `…/set/source` |
+| Station | select (station names) | `…/set/station` |
+| Play | switch | `…/set/play` (`ON`/`OFF`) |
+| Next, Previous, Volume up, Volume down | buttons | `…/cmd` |
+| Now playing, Status | sensors | from `…/state` |
+| Mono, Sound enhancer, Exciter protection, Resonance notch, Notch depth | config | `…/set/mono`, `enh`, `hpf`, `nhz`, `ndb` |
+| Stream, Wi-Fi signal, IP address | diagnostic sensors | from `…/state` |
+
+State is one retained JSON message on `…/state`, republished when something
+changes; availability is `…/status` (`online` / `offline`, set as the LWT).
+
+Commands on `…/cmd` (also over HTTP as `/cmd?c=<command>`):
+
+| Command | Effect |
+|---|---|
+| `volume_up` / `volume_down` | One step of 5 |
+| `ramp_up` / `ramp_down` | Volume moves 1 point every 60 ms until `ramp_stop` (safety stop after 8 s) |
+| `ramp_stop` | Ends a ramp |
+| `next` / `previous` | Next/previous station or track |
+| `source_next` / `source_prev` | Switch Radio ↔ SD Card |
+| `play` / `pause` / `toggle` | Playback |
+
+`ramp_*` is meant for buttons with press-and-hold, e.g. an IKEA RODRET in ZHA:
+send `ramp_up`/`ramp_down` on the hold event and `ramp_stop` on release, with
+`mqtt.publish` to `esp32bgm/<id>/cmd`. The board does the ramp itself, so it
+stays smooth regardless of network or automation latency.
+
 ## Logs
 
 - **Browser**: `http://<device-ip>/logs` polls once a second and highlights
@@ -293,6 +339,9 @@ tracks are indexed.
 | `/selectitem`, `/setstation` | GET/POST | `i` (or `s`) = item index |
 | `/setvolume` | GET/POST | `v` = 0–100 |
 | `/setbass`, `/settreble` | GET/POST | `v` = −10…10 |
+| `/cmd` | GET/POST | `c` = command, same as MQTT `…/cmd` |
+| `/set` | GET/POST | `k`, `v`: same keys as MQTT `…/set/<key>` |
+| `/mqtt`, `/savemqtt` | GET / POST | MQTT settings page and save |
 | `/setsound` | GET/POST | `k` = `mono` (0/1), `enh` (0–100), `hpf` (0 or 40–400 Hz), `nhz` (100–2000 Hz), `ndb` (0–12 dB cut); `v` = value |
 | `/savedefaults` | GET/POST | Saves the current settings |
 | `/refreshlibrary` | POST | Rescans the SD card / reloads stations |
@@ -351,7 +400,6 @@ Any other path returns the main page, which is what captive-portal checks expect
 
 - [ ] Test on hardware: M4A, HTTPS streams, playlist URLs.
 - [ ] FTP library source.
-- [ ] MQTT bridge.
 - [ ] Hardware keys (GPIO 36/13/19/23/18/5) for play/pause/next/volume.
 
 ## Sources & credits

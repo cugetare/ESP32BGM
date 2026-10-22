@@ -8,11 +8,38 @@
 #include <cstring>
 
 #include "esp_log.h"
+#include "esp_timer.h"
 
 static const char* TAG = "audio";
 
 static SemaphoreHandle_t s_stateMutex = nullptr;
 static TaskHandle_t s_audioTask = nullptr;
+
+// Volume survives power cycles: saved to NVS once it has been still for
+// VOLUME_SAVE_DELAY_US, so a ramp or a run of clicks costs one write.
+static const int64_t VOLUME_SAVE_DELAY_US = 5LL * 1000 * 1000;
+static esp_timer_handle_t s_volumeSaveTimer = nullptr;
+static int s_savedVolume = -1;
+
+static void volumeSaveCallback(void* arg) {
+  (void)arg;
+  int volume = globalSettings.volume;
+  if (volume == s_savedVolume) return;
+  settingsSaveVolume();
+  s_savedVolume = volume;
+  ESP_LOGI(TAG, "volume %d saved", volume);
+}
+
+static void scheduleVolumeSave() {
+  if (s_volumeSaveTimer == nullptr) {
+    esp_timer_create_args_t args = {};
+    args.callback = volumeSaveCallback;
+    args.name = "volSave";
+    if (esp_timer_create(&args, &s_volumeSaveTimer) != ESP_OK) return;
+  }
+  esp_timer_stop(s_volumeSaveTimer);  // restart the quiet period
+  esp_timer_start_once(s_volumeSaveTimer, VOLUME_SAVE_DELAY_US);
+}
 
 static std::string toLower(std::string value) {
   std::transform(value.begin(), value.end(), value.begin(),
@@ -50,6 +77,7 @@ void initAudioTask() {
   if (s_stateMutex == nullptr) s_stateMutex = xSemaphoreCreateRecursiveMutex();
 
   audioDecoder.setSink(decoderSink);
+  s_savedVolume = globalSettings.volume;  // loaded from NVS at boot
   audioTaskCore = AUDIO_TASK_CORE;
   xTaskCreatePinnedToCore(audioTaskRunner, "audioTask", AUDIO_TASK_STACK_SIZE, nullptr,
                           AUDIO_TASK_PRIORITY, &s_audioTask, AUDIO_TASK_CORE);
@@ -91,6 +119,7 @@ void playbackSetVolume(int value) {
   globalSettings.volume = std::clamp(value, 0, 100);
   audioOutputSetVolume(globalSettings.volume);
   dspApplySettings();  // the enhancer's depth follows the volume
+  scheduleVolumeSave();
 }
 
 void playbackSetBass(int value) {

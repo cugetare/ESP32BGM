@@ -206,6 +206,7 @@ void settingsLoadAll();
 void settingsSaveGlobal();
 void settingsSaveRadio();
 void settingsSaveSd();
+void settingsSaveVolume();
 void settingsSaveMqtt();
 void loadStations();
 void saveStations();

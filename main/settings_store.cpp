@@ -127,6 +127,10 @@ void settingsSaveMqtt() {
   nvs_close(h);
 }
 
+void settingsSaveVolume() {
+  writeInts({ { "volume", globalSettings.volume } });
+}
+
 void settingsSaveRadio() {
   writeInts({ { "station", currentStation } });
 }
